@@ -327,6 +327,9 @@ body { font-family: var(--sans); background: var(--bg); color: var(--ink); min-h
 .aidat-item .ay-label { font-size: 12px; font-weight: 700; color: var(--ink2); min-width: 60px; }
 .aidat-item .aidat-input { width: 100px; }
 
+/* ── GUEST MODE ── */
+input:disabled { background: var(--surface2) !important; color: var(--ink2) !important; opacity: 0.7 !important; }
+
 /* ── MONTH SUMMARY TABLE ── */
 .ozet-month-link { color: var(--blue); cursor: pointer; text-decoration: none; font-weight: 600; }
 .ozet-month-link:hover { text-decoration: underline; }
@@ -520,7 +523,7 @@ body { font-family: var(--sans); background: var(--bg); color: var(--ink); min-h
             <div class="card">
               <div class="card-header">
                 <span class="card-title">Gider Kalemleri</span>
-                <button class="btn btn-success btn-sm" onclick="saveAy()">💾 Kaydet</button>
+                <button class="btn btn-success btn-sm admin-only" onclick="saveAy()">💾 Kaydet</button>
               </div>
               <div style="padding:4px 0" id="giderInputList"></div>
               <div style="padding:12px 18px;border-top:2px solid var(--border);display:flex;justify-content:space-between;align-items:center">
@@ -552,7 +555,7 @@ body { font-family: var(--sans); background: var(--bg); color: var(--ink); min-h
       <div id="ayTabContent-tahsilat" style="display:none">
 
         <!-- Toplu Borçlandırma Paneli -->
-        <div class="card" style="margin-bottom:14px;border-left:4px solid var(--blue)">
+        <div class="card admin-only" style="margin-bottom:14px;border-left:4px solid var(--blue)">
           <div class="card-body" style="padding:14px 18px">
             <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
               <div>
@@ -846,7 +849,7 @@ function goView(v, ay=null) {
     const navEl = document.getElementById(navId);
     if (navEl) navEl.classList.add('active');
     document.getElementById('topbarTitle').textContent = `${ay} ${DB.genel.yil}`;
-    document.getElementById('topbarActions').innerHTML = `<button class="btn btn-success btn-sm" onclick="saveAy()">💾Kaydet</button>`;
+    document.getElementById('topbarActions').innerHTML = IS_ADMIN ? `<button class="btn btn-success btn-sm" onclick="saveAy()">💾 Kaydet</button>` : '';
     setAyTab(activeAyTab);
     renderAy(ay);
   }
@@ -1066,6 +1069,8 @@ function renderAy(ay) {
   ensureAyData(ay);
   if (activeAyTab === 'giderler') renderGiderler(ay);
   else renderTahsilat(ay);
+  // Yeniden render sonrası admin durumunu uygula
+  setTimeout(updateAdminUI, 0);
 }
 
 function renderGiderler(ay) {
@@ -1479,11 +1484,24 @@ function updateAdminUI() {
     badge.innerHTML = '⚙️ Yönetici';
   } else {
     badge.className = 'guest-badge';
-    badge.innerHTML = '👤 Misafir — Giriş Yap';
+    badge.innerHTML = '👤 Giriş Yap';
   }
-  // Ayarlar menüsünü gizle/göster
+
+  // Ayarlar menüsü
   const navAyarlar = document.getElementById('nav-ayarlar');
   if (navAyarlar) navAyarlar.style.display = IS_ADMIN ? '' : 'none';
+
+  // Tüm admin-only elementleri gizle/göster
+  document.querySelectorAll('.admin-only').forEach(el => {
+    el.style.display = IS_ADMIN ? '' : 'none';
+  });
+
+  // Tüm input alanlarını kilitle/aç
+  document.querySelectorAll('input.input-num, input.input-text').forEach(el => {
+    el.disabled = !IS_ADMIN;
+    el.style.cursor = IS_ADMIN ? '' : 'default';
+    el.style.opacity = IS_ADMIN ? '' : '0.6';
+  });
 }
 
 // Hide ayarlar from guests on boot
