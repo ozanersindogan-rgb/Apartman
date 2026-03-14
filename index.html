@@ -559,14 +559,16 @@ input:disabled { background: var(--surface2) !important; color: var(--ink2) !imp
           <div class="card-body" style="padding:14px 18px">
             <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
               <div>
-                <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:2px">⚡ Toplu Borçlandırma</div>
-                <div style="font-size:11px;color:var(--ink3)">Bu ayki aidat tutarını muaf olmayanların tamamına otomatik yaz</div>
+                <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:2px">⚡ Toplu İşlemler</div>
+                <div style="font-size:11px;color:var(--ink3)">Borçlandırma ve tahsilat işlemlerini tek tıkla uygula</div>
               </div>
               <div style="display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap">
                 <span style="font-size:12px;color:var(--ink3)">Bu ay aidatı:</span>
                 <span style="font-family:var(--mono);font-weight:700;color:var(--blue);font-size:15px" id="tahsilat-aidatTutar">—</span>
                 <button class="btn btn-primary btn-sm" onclick="topluBorclandir()">Herkese Uygula</button>
                 <button class="btn btn-ghost btn-sm" onclick="topluSifirla()">Borçları Temizle</button>
+                <button class="btn btn-success btn-sm" onclick="topluTahsilat()">✅ Tümü Ödedi</button>
+                <button class="btn btn-ghost btn-sm" onclick="topluTahsilatSifirla()">Ödemeleri Sıfırla</button>
                 <button class="btn btn-success btn-sm" onclick="saveAy()">💾 Kaydet</button>
               </div>
             </div>
@@ -1247,6 +1249,65 @@ function malikAylikBorcHesapla(malikId, ay) {
   return aidat + devir;
 }
 
+function tekOdemeToggle(ay, malikId) {
+  ensureAyData(ay);
+  const t = DB.aylar[ay].tahsilat[malikId] || {};
+  const borc = parseFloat(t.borc) || 0;
+  const odeme = parseFloat(t.odeme) || 0;
+  // Eğer zaten tam ödendiyse sıfırla, değilse borca eşitle
+  const yeniOdeme = (odeme >= borc && borc > 0) ? 0 : borc;
+  DB.aylar[ay].tahsilat[malikId] = { ...t, odeme: yeniOdeme };
+  const el = document.getElementById(`tb-odeme-${malikId}`);
+  if (el) el.value = yeniOdeme || '';
+  const st = document.getElementById(`tb-status-${malikId}`);
+  if (st) {
+    if (yeniOdeme === 0) st.innerHTML = `<span class="badge badge-red">Ödenmedi</span>`;
+    else st.innerHTML = `<span class="badge badge-green">Ödendi ✓</span>`;
+  }
+  onTahsilatChange(ay);
+}
+
+function topluTahsilat() {
+  if (!activeAy) return;
+  ensureAyData(activeAy);
+  let sayac = 0;
+  DB.malikler.forEach(m => {
+    if (m.muaf) return;
+    const t = DB.aylar[activeAy].tahsilat[m.id];
+    if (!t) return;
+    const borc = parseFloat(t.borc) || 0;
+    if (borc <= 0) return;
+    // Ödemeyi borca eşitle
+    DB.aylar[activeAy].tahsilat[m.id].odeme = borc;
+    const el = document.getElementById(`tb-odeme-${m.id}`);
+    if (el) el.value = borc;
+    // Durum badge güncelle
+    const st = document.getElementById(`tb-status-${m.id}`);
+    if (st) st.innerHTML = `<span class="badge badge-green">Ödendi ✓</span>`;
+    sayac++;
+  });
+  onTahsilatChange(activeAy);
+  toast(`${sayac} kişi ödedi olarak işaretlendi ✓`);
+}
+
+function topluTahsilatSifirla() {
+  if (!activeAy) return;
+  if (!confirm('Tüm ödemeler sıfırlanacak. Emin misiniz?')) return;
+  ensureAyData(activeAy);
+  DB.malikler.forEach(m => {
+    if (m.muaf) return;
+    if (DB.aylar[activeAy].tahsilat[m.id]) {
+      DB.aylar[activeAy].tahsilat[m.id].odeme = 0;
+    }
+    const el = document.getElementById(`tb-odeme-${m.id}`);
+    if (el) el.value = '';
+    const st = document.getElementById(`tb-status-${m.id}`);
+    if (st) st.innerHTML = `<span class="badge badge-red">Ödenmedi</span>`;
+  });
+  onTahsilatChange(activeAy);
+  toast('Ödemeler sıfırlandı');
+}
+
 function renderTahsilat(ay) {
   ensureAyData(ay);
   const ayD = DB.aylar[ay];
@@ -1283,7 +1344,10 @@ function renderTahsilat(ay) {
         <td style="font-family:var(--mono);color:var(--ink3);font-size:11px">${m.no}</td>
         <td style="font-weight:500">${m.isim}${devirInfo}</td>
         <td class="r"><input type="number" class="input-num" style="width:110px" id="tb-borc-${m.id}" value="${borc||''}" placeholder="0" oninput="onTahsilatChange('${ay}')"></td>
-        <td class="r"><input type="number" class="input-num" style="width:110px;background:var(--green-light);color:var(--green)" id="tb-odeme-${m.id}" value="${odeme||''}" placeholder="0" oninput="onTahsilatChange('${ay}')"></td>
+        <td class="r" style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
+          <input type="number" class="input-num" style="width:90px;background:var(--green-light);color:var(--green)" id="tb-odeme-${m.id}" value="${odeme||''}" placeholder="0" oninput="onTahsilatChange('${ay}')">
+          <button title="Tamamını ödedi işaretle" style="background:none;border:1px solid var(--border2);border-radius:4px;cursor:pointer;padding:5px 7px;font-size:13px;flex-shrink:0" onclick="tekOdemeToggle('${ay}',${m.id})">✓</button>
+        </td>
         <td class="c" id="tb-status-${m.id}">${badge}</td>
         <td><input type="text" class="input-text" style="font-size:12px;padding:5px 8px;max-width:160px" id="tb-not-${m.id}" value="${t.not||''}" placeholder="—"></td>
       </tr>`;
@@ -1510,6 +1574,10 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ── Expose to global scope (needed for onclick handlers) ──
+window.topluTahsilat = topluTahsilat;
+window.topluTahsilatSifirla = topluTahsilatSifirla;
+window.tekOdemeToggle = tekOdemeToggle;
+window.topluTahsilatSifirla = topluTahsilatSifirla;
 window.goView = goView;
 window.setAyTab = setAyTab;
 window.toggleSidebar = toggleSidebar;
