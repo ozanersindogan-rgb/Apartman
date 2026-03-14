@@ -1451,6 +1451,33 @@ function updateAdminUI() {
 document.addEventListener('DOMContentLoaded', () => {
   updateAdminUI();
 });
+
+// ── Expose to global scope (needed for onclick handlers) ──
+window.goView = goView;
+window.setAyTab = setAyTab;
+window.toggleSidebar = toggleSidebar;
+window.saveAidatlar = saveAidatlar;
+window.saveGenelAyarlar = saveGenelAyarlar;
+window.openMalikModal = openMalikModal;
+window.saveMalik = saveMalik;
+window.deleteMalik = deleteMalik;
+window.openGiderKalemModal = openGiderKalemModal;
+window.saveGiderKalem = saveGiderKalem;
+window.deleteGiderKalem = deleteGiderKalem;
+window.renderAyarlar = renderAyarlar;
+window.onGiderChange = onGiderChange;
+window.topluBorclandir = topluBorclandir;
+window.topluSifirla = topluSifirla;
+window.onTahsilatChange = onTahsilatChange;
+window.saveAy = saveAy;
+window.closeModal = closeModal;
+window.exportData = exportData;
+window.resetAll = resetAll;
+window.openLoginOverlay = openLoginOverlay;
+window.closeLoginOverlay = closeLoginOverlay;
+window.doLogin = doLogin;
+window.doLogout = doLogout;
+window.printAy = printAy;
 </script>
 </body>
 </html>
