@@ -6,6 +6,58 @@
 <title>Bekçi Ahmet Apartmanı</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
+/* ── ADMIN LOGIN ── */
+.login-overlay {
+  position: fixed; inset: 0; background: rgba(15,25,35,.85);
+  z-index: 300; display: none; align-items: center; justify-content: center;
+}
+.login-overlay.open { display: flex; }
+.login-box {
+  background: #fff; border-radius: 14px; padding: 32px 28px;
+  width: 320px; box-shadow: 0 20px 60px rgba(0,0,0,.3);
+  text-align: center;
+}
+.login-box h2 { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+.login-box p { font-size: 13px; color: var(--ink3); margin-bottom: 20px; }
+.login-box input {
+  width: 100%; padding: 11px 14px; border: 1.5px solid var(--border2);
+  border-radius: var(--r-sm); font-size: 14px; margin-bottom: 12px;
+  text-align: center; letter-spacing: .15em;
+  font-family: var(--mono);
+}
+.login-box input:focus { outline: none; border-color: var(--blue); }
+.login-error { color: var(--red); font-size: 12px; margin-top: -6px; margin-bottom: 10px; display:none; }
+
+/* ── LOADING SCREEN ── */
+#loadingScreen {
+  position: fixed; inset: 0; background: var(--ink);
+  z-index: 500; display: flex; align-items: center; justify-content: center;
+  flex-direction: column; gap: 16px;
+}
+.spinner {
+  width: 40px; height: 40px; border: 3px solid rgba(255,255,255,.2);
+  border-top-color: #fff; border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+#loadingScreen p { color: rgba(255,255,255,.6); font-size: 13px; }
+
+/* ── ADMIN BADGE ── */
+.admin-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--amber-light); color: var(--amber);
+  border: 1px solid #fcd34d; border-radius: 20px;
+  padding: 3px 10px; font-size: 11px; font-weight: 700;
+  cursor: pointer;
+}
+.guest-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--surface2); color: var(--ink3);
+  border: 1px solid var(--border); border-radius: 20px;
+  padding: 3px 10px; font-size: 11px; font-weight: 600;
+  cursor: pointer;
+}
+
 :root {
   --bg: #f4f6f9;
   --surface: #ffffff;
@@ -351,7 +403,10 @@ body { font-family: var(--sans); background: var(--bg); color: var(--ink); min-h
       <button class="menu-btn" onclick="toggleSidebar()" title="Menü">☰</button>
       <div class="topbar-title" id="topbarTitle">Yıllık Özet</div>
     </div>
-    <div class="topbar-actions" id="topbarActions"></div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span id="adminStatusBadge" class="guest-badge" onclick="openLoginOverlay()">👤 Misafir</span>
+      <div class="topbar-actions" id="topbarActions"></div>
+    </div>
   </div>
 
   <div class="content">
@@ -597,7 +652,28 @@ body { font-family: var(--sans); background: var(--bg); color: var(--ink); min-h
 
 <div class="toast" id="toast"></div>
 
-<script>
+<!-- ── LOADING ── -->
+<div id="loadingScreen">
+  <div class="spinner"></div>
+  <p>Veriler yükleniyor...</p>
+</div>
+
+<!-- ── ADMIN LOGIN MODAL ── -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-box">
+    <div style="font-size:36px;margin-bottom:12px">🔐</div>
+    <h2>Yönetici Girişi</h2>
+    <p>Veri girişi için şifrenizi girin</p>
+    <input type="password" id="adminPwd" placeholder="Şifre" onkeydown="if(event.key==='Enter')doLogin()">
+    <div class="login-error" id="loginError">Yanlış şifre</div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="doLogin()">Giriş Yap</button>
+    <button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center;margin-top:8px" onclick="closeLoginOverlay()">İptal</button>
+  </div>
+</div>
+
+
+<script type="module">
+
 // ════════════════════════════════════════════════════════
 //  VERİ MODELİ
 // ════════════════════════════════════════════════════════
@@ -647,34 +723,63 @@ function defaultDB() {
 }
 
 // ════════════════════════════════════════════════════════
-//  STORAGE — localStorage + embedded fallback
+//  FIREBASE + STORAGE
 // ════════════════════════════════════════════════════════
 let DB;
-function loadDB() {
-  // Her zaman önce gömülü default veriyi yükle
+let IS_ADMIN = false;
+let FIREBASE_APP, FIRESTORE;
+
+async function initFirebase() {
+  const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+  const fb = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyAzPLaKMo6EKvynu-qqcGRS3x5gE4v6rwo",
+    authDomain: "apartman1.firebaseapp.com",
+    projectId: "apartman1",
+    storageBucket: "apartman1.firebasestorage.app",
+    messagingSenderId: "971844249774",
+    appId: "1:971844249774:web:56ba70416f1c3df819e53f"
+  };
+
+  FIREBASE_APP = initializeApp(firebaseConfig);
+  FIRESTORE = fb.getFirestore(FIREBASE_APP);
+  window._fsDoc = (db, col, id) => fb.doc(db, col, id);
+  window._fsGet = fb.getDoc;
+  window._fsSet = fb.setDoc;
+}
+
+async function loadDB() {
   DB = defaultDB();
   try {
-    const raw = localStorage.getItem('apt2026');
-    if (raw) {
-      const saved = JSON.parse(raw);
+    const ref = window._fsDoc(FIRESTORE, 'apartman', '2026');
+    const snap = await window._fsGet(ref);
+    if (snap.exists()) {
+      const saved = snap.data();
       if (saved && saved.ver === VER) {
-        // Kaydedilmiş veriyi default üzerine birleştir
         DB = saved;
-        // Eksik aylar varsa default'dan tamamla
-        if (!DB.aylar) DB.aylar = defaultDB().aylar;
-        return;
+        if (!DB.aylar) DB.aylar = {};
       }
     }
-  } catch(e) { console.warn('localStorage okunamadı:', e); }
-  // localStorage yoksa/hatalıysa default ile çalışmaya devam et
-  try { localStorage.setItem('apt2026', JSON.stringify(DB)); } catch(e) {}
-}
-function saveDB() {
-  try {
-    localStorage.setItem('apt2026', JSON.stringify(DB));
   } catch(e) {
-    console.warn('localStorage yazılamadı:', e);
-    // localStorage yoksa bile uygulama çalışmaya devam eder
+    console.warn('Firebase okunamadi:', e);
+    // Offline fallback: localStorage
+    try {
+      const raw = localStorage.getItem('apt2026');
+      if (raw) { const s = JSON.parse(raw); if (s.ver===VER) DB = s; }
+    } catch(e2) {}
+  }
+}
+
+async function saveDB() {
+  if (!IS_ADMIN) return;
+  try {
+    const ref = window._fsDoc(FIRESTORE, 'apartman', '2026');
+    await window._fsSet(ref, JSON.parse(JSON.stringify(DB)));
+    try { localStorage.setItem('apt2026', JSON.stringify(DB)); } catch(e) {}
+  } catch(e) {
+    console.warn('Firebase yazılamadi:', e);
+    toast('Kayıt başarısız — internet bağlantısını kontrol edin', 'err');
   }
 }
 
@@ -856,6 +961,7 @@ function renderAyarlar() {
 }
 
 function saveAidatlar() {
+  if (!IS_ADMIN) { toast('Düzenleme için yönetici girişi gerekli', 'err'); return; }
   AYLAR.forEach(ay => {
     DB.aidatlar[ay] = parseFloat(document.getElementById(`aidat-${ay}`)?.value)||0;
   });
@@ -864,6 +970,7 @@ function saveAidatlar() {
 }
 
 function saveGenelAyarlar() {
+  if (!IS_ADMIN) { toast('Düzenleme için yönetici girişi gerekli', 'err'); return; }
   DB.genel.aptAdi = document.getElementById('cfg-aptAdi').value;
   DB.genel.yil = parseInt(document.getElementById('cfg-yil').value)||2026;
   DB.genel.kasaAcilis = parseFloat(document.getElementById('cfg-kasaAcilis').value)||0;
@@ -1182,6 +1289,7 @@ function renderTahsilatFoot(ay, totBorc, totOdeme) {
 }
 
 function saveAy() {
+  if (!IS_ADMIN) { toast('Düzenleme için yönetici girişi gerekli', 'err'); return; }
   if (!activeAy) return;
   ensureAyData(activeAy);
   // Gider kaydet
@@ -1270,10 +1378,79 @@ function initSidebar() {
 // ════════════════════════════════════════════════════════
 //  INIT
 // ════════════════════════════════════════════════════════
-loadDB();
-renderSidebar();
-initSidebar();
-goView('ozet');
+async function boot() {
+  showLoading(true);
+  await initFirebase();
+  await loadDB();
+  showLoading(false);
+  renderSidebar();
+  initSidebar();
+  goView('ozet');
+}
+
+function showLoading(show) {
+  document.getElementById('loadingScreen').style.display = show ? 'flex' : 'none';
+}
+
+boot();
+
+
+// ════════════════════════════════════════════════════════
+//  YÖNETİCİ GİRİŞİ
+// ════════════════════════════════════════════════════════
+const ADMIN_PASS = 'bekci2026'; // ← İsterseniz değiştirin
+
+function openLoginOverlay() {
+  if (IS_ADMIN) { doLogout(); return; }
+  document.getElementById('adminPwd').value = '';
+  document.getElementById('loginError').style.display = 'none';
+  document.getElementById('loginOverlay').classList.add('open');
+  setTimeout(() => document.getElementById('adminPwd').focus(), 100);
+}
+
+function closeLoginOverlay() {
+  document.getElementById('loginOverlay').classList.remove('open');
+}
+
+function doLogin() {
+  const pwd = document.getElementById('adminPwd').value;
+  if (pwd === ADMIN_PASS) {
+    IS_ADMIN = true;
+    closeLoginOverlay();
+    updateAdminUI();
+    toast('Yönetici girişi yapıldı ✓');
+  } else {
+    document.getElementById('loginError').style.display = 'block';
+    document.getElementById('adminPwd').value = '';
+    document.getElementById('adminPwd').focus();
+  }
+}
+
+function doLogout() {
+  if (!confirm('Yönetici çıkışı yapılsın mı?')) return;
+  IS_ADMIN = false;
+  updateAdminUI();
+  toast('Çıkış yapıldı');
+}
+
+function updateAdminUI() {
+  const badge = document.getElementById('adminStatusBadge');
+  if (IS_ADMIN) {
+    badge.className = 'admin-badge';
+    badge.innerHTML = '⚙️ Yönetici';
+  } else {
+    badge.className = 'guest-badge';
+    badge.innerHTML = '👤 Misafir — Giriş Yap';
+  }
+  // Ayarlar menüsünü gizle/göster
+  const navAyarlar = document.getElementById('nav-ayarlar');
+  if (navAyarlar) navAyarlar.style.display = IS_ADMIN ? '' : 'none';
+}
+
+// Hide ayarlar from guests on boot
+document.addEventListener('DOMContentLoaded', () => {
+  updateAdminUI();
+});
 </script>
 </body>
 </html>
