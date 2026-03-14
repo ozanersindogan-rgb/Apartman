@@ -1194,11 +1194,11 @@ function topluBorclandir() {
   DB.malikler.forEach(m => {
     if (m.muaf) return;
     const devir = devirBorcHesapla(m.id, activeAy);
-    const toplamBorc = aidat + devir;
+    const toplamBorc = Math.max(0, aidat + devir); // Alacak varsa borç 0'dan aşağı inmez
     if (!DB.aylar[activeAy].tahsilat[m.id]) DB.aylar[activeAy].tahsilat[m.id] = { borc:0, odeme:0, not:'' };
     DB.aylar[activeAy].tahsilat[m.id].borc = toplamBorc;
     const el = document.getElementById(`tb-borc-${m.id}`);
-    if (el) el.value = toplamBorc;
+    if (el) el.value = toplamBorc || '';
     sayac++;
   });
   onTahsilatChange(activeAy);
@@ -1227,9 +1227,9 @@ function topluSifirla() {
 // Bir malikin belirtilen aydan önceki toplam ödenmemiş borcunu hesaplar
 function devirBorcHesapla(malikId, ay) {
   const ayIdx = AYLAR.indexOf(ay);
-  if (ayIdx === 0) return 0; // İlk ay, devir yok
+  if (ayIdx === 0) return 0;
 
-  let devirBorc = 0;
+  let net = 0;
   for (let i = 0; i < ayIdx; i++) {
     const gecenAy = AYLAR[i];
     const ayD = DB.aylar[gecenAy];
@@ -1237,16 +1237,16 @@ function devirBorcHesapla(malikId, ay) {
     const t = (ayD.tahsilat || {})[malikId] || {};
     const borc = parseFloat(t.borc) || 0;
     const odeme = parseFloat(t.odeme) || 0;
-    devirBorc += borc - odeme;
+    net += borc - odeme;
   }
-  return devirBorc > 0 ? devirBorc : 0; // Eksi devir olmaz
+  return net; // Pozitif = borç, Negatif = alacak (fazla ödeme)lmaz
 }
 
 // Bu ayın toplam borcunu hesaplar: aidat + devir
 function malikAylikBorcHesapla(malikId, ay) {
   const aidat = DB.aidatlar[ay] || 0;
   const devir = devirBorcHesapla(malikId, ay);
-  return aidat + devir;
+  return aidat + devir; // devir negatifse (alacak) aidattan düşer
 }
 
 function tekOdemeToggle(ay, malikId) {
@@ -1337,8 +1337,10 @@ function renderTahsilat(ay) {
     else badge = `<span class="badge badge-amber">Kısmi</span>`;
     // Devir varsa bilgi satırı göster
     const devirInfo = devir > 0
-      ? `<div style="font-size:10px;color:var(--amber);margin-top:2px">↩ ${tl(devir)} devir</div>`
-      : '';
+      ? `<div style="font-size:10px;color:var(--amber);margin-top:2px">↩ ${tl(devir)} devir borç</div>`
+      : devir < 0
+        ? `<div style="font-size:10px;color:var(--green);margin-top:2px">✚ ${tl(-devir)} alacak</div>`
+        : '';
     return `
       <tr>
         <td style="font-family:var(--mono);color:var(--ink3);font-size:11px">${m.no}</td>
