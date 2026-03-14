@@ -1129,21 +1129,58 @@ function renderGiderler(ay) {
   document.getElementById('giderToplam').textContent = tl(h.giderler);
 
   // Tahsilat özet tablosu (küçük)
+  // Zengin tahsilat özet tablosu
+  let toplamBorc = 0, toplamOdeme = 0, toplamDevir = 0;
   const rows = DB.malikler.map(m => {
-    if (m.muaf) return `<tr><td style="color:var(--ink3)">${m.no}</td><td>${m.isim}</td><td class="c"><span class="badge badge-gray">Muaf</span></td><td class="r">—</td></tr>`;
+    if (m.muaf) return `<tr style="opacity:.5"><td style="color:var(--ink3)">${m.no}</td><td>${m.isim}</td><td>—</td><td>—</td><td>—</td><td class="c"><span class="badge badge-gray">Muaf</span></td></tr>`;
     const t = (ayD.tahsilat||{})[m.id]||{};
     const odeme = parseFloat(t.odeme)||0;
-    const borc = parseFloat(t.borc)||0;
+    const borc  = parseFloat(t.borc)||0;
+    const devir = devirBorcHesapla(m.id, ay);
+    const aylikAidat = DB.aidatlar[ay]||0;
+    toplamBorc  += borc;
+    toplamOdeme += odeme;
+    if (devir > 0) toplamDevir += devir;
     let badge;
-    if (odeme === 0) badge = `<span class="badge badge-red">Ödenmedi</span>`;
-    else if (odeme >= borc && borc > 0) badge = `<span class="badge badge-green">Ödendi</span>`;
+    if (odeme === 0 && borc === 0) badge = `<span class="badge badge-gray">—</span>`;
+    else if (odeme === 0) badge = `<span class="badge badge-red">Ödenmedi</span>`;
+    else if (borc > 0 && odeme >= borc) badge = `<span class="badge badge-green">Ödendi ✓</span>`;
     else badge = `<span class="badge badge-amber">Kısmi</span>`;
-    return `<tr><td style="font-family:var(--mono);color:var(--ink3);font-size:11px">${m.no}</td><td>${m.isim}</td><td class="c">${badge}</td><td class="r">${tl(odeme)}</td></tr>`;
+    const devirCell = devir > 0
+      ? `<span style="color:var(--amber);font-family:var(--mono);font-size:11px">${tl(devir)}</span>`
+      : devir < 0
+        ? `<span style="color:var(--green);font-family:var(--mono);font-size:11px">+${tl(-devir)}</span>`
+        : `<span style="color:var(--ink3)">—</span>`;
+    return `<tr>
+      <td style="font-family:var(--mono);color:var(--ink3);font-size:11px">${m.no}</td>
+      <td style="font-weight:500">${m.isim}</td>
+      <td class="r" style="font-family:var(--mono);font-size:12px">${tl(aylikAidat)}</td>
+      <td class="r">${devirCell}</td>
+      <td class="r" style="font-family:var(--mono);font-size:12px;font-weight:600">${tl(borc)}</td>
+      <td class="r" style="font-family:var(--mono);font-size:12px;color:var(--green);font-weight:600">${odeme ? tl(odeme) : '—'}</td>
+      <td class="c">${badge}</td>
+    </tr>`;
   }).join('');
 
+  const altEl = document.getElementById('tahsilatOzetAlt');
+  if (altEl) altEl.textContent = `Toplam borç: ${tl(toplamBorc)} | Toplanan: ${tl(toplamOdeme)}`;
+
   document.getElementById('tahsilatOzetTable').innerHTML = `
-    <thead><tr><th>NO</th><th>MALİK</th><th class="c">DURUM</th><th class="r">ÖDEME</th></tr></thead>
-    <tbody>${rows}</tbody>`;
+    <thead><tr>
+      <th>NO</th><th>MALİK</th>
+      <th class="r">BU AY AİDATI</th>
+      <th class="r">GEÇMİŞ DÖNEM</th>
+      <th class="r">TOPLAM BORÇ</th>
+      <th class="r">ÖDEME</th>
+      <th class="c">DURUM</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot><tr>
+      <td colspan="4"><b>TOPLAM</b></td>
+      <td class="r">${tl(toplamBorc)}</td>
+      <td class="r" style="color:var(--green)">${tl(toplamOdeme)}</td>
+      <td></td>
+    </tr></tfoot>`;
 }
 
 function onGiderChange(ay) {
@@ -1508,7 +1545,7 @@ boot();
 // ════════════════════════════════════════════════════════
 //  YÖNETİCİ GİRİŞİ
 // ════════════════════════════════════════════════════════
-const ADMIN_PASS = 'ozan1234'; // ← İsterseniz değiştirin
+const ADMIN_PASS = 'bekci2026'; // ← İsterseniz değiştirin
 
 function openLoginOverlay() {
   if (IS_ADMIN) { doLogout(); return; }
