@@ -516,11 +516,10 @@ input:disabled { background: var(--surface2) !important; color: var(--ink2) !imp
 
       <!-- Giderler Tab -->
       <div id="ayTabContent-giderler">
-        <div class="two-col-ay" style="display:grid;grid-template-columns:1fr 360px;gap:20px;align-items:start">
+        <div class="two-col-ay" style="display:grid;grid-template-columns:1fr 320px;gap:20px;align-items:start">
 
-          <!-- SOL: Ödeme Özeti (önce görünsün) -->
-          <div style="display:flex;flex-direction:column;gap:14px">
-            <div class="stats-row" style="grid-template-columns:repeat(2,1fr);margin-bottom:0" id="ayStats"></div>
+          <!-- SOL: Ödeme Özeti (tam genişlik, en üstte) -->
+          <div style="display:flex;flex-direction:column;gap:0">
             <div class="card">
               <div class="card-header"><span class="card-title">Bu Ayki Ödeme Özeti</span></div>
               <div style="overflow-x:auto">
@@ -529,8 +528,9 @@ input:disabled { background: var(--surface2) !important; color: var(--ink2) !imp
             </div>
           </div>
 
-          <!-- SAĞ: Gider Kalemleri + Kasa -->
-          <div>
+          <!-- SAĞ: İstatistikler + Gider + Kasa -->
+          <div style="display:flex;flex-direction:column;gap:14px">
+            <div class="stats-row" style="grid-template-columns:repeat(2,1fr);margin-bottom:0" id="ayStats"></div>
             <div class="card">
               <div class="card-header">
                 <span class="card-title">Gider Kalemleri</span>
@@ -542,7 +542,7 @@ input:disabled { background: var(--surface2) !important; color: var(--ink2) !imp
                 <span style="font-family:var(--mono);font-size:15px;font-weight:700;color:var(--red)" id="giderToplam">0 ₺</span>
               </div>
             </div>
-            <div class="card" style="margin-top:14px">
+            <div class="card">
               <div class="card-header"><span class="card-title">Kasa Durumu</span></div>
               <div style="padding:12px 18px;display:flex;flex-direction:column;gap:10px" id="kasaPanel"></div>
             </div>
