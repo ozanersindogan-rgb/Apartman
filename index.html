@@ -561,13 +561,13 @@ input:disabled { background: var(--surface2) !important; color: var(--ink2) !imp
             <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
               <div>
                 <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:2px">⚡ Toplu İşlemler</div>
-                <div style="font-size:11px;color:var(--ink3)">Borçlandırma ve tahsilat işlemlerini tek tıkla uygula</div>
+                <div style="font-size:11px;color:var(--ink3)">Sağlıklı sistem için geçmiş borç otomatik taşınır, sadece düzeltme farkı manuel girilir</div>
               </div>
               <div style="display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap">
                 <span style="font-size:12px;color:var(--ink3)">Bu ay aidatı:</span>
                 <span style="font-family:var(--mono);font-weight:700;color:var(--blue);font-size:15px" id="tahsilat-aidatTutar">—</span>
-                <button class="btn btn-primary btn-sm" onclick="topluBorclandir()">Herkese Uygula</button>
-                <button class="btn btn-ghost btn-sm" onclick="topluSifirla()">Borçları Temizle</button>
+                <button class="btn btn-primary btn-sm" onclick="topluBorclandir()">Otomatik Devri Getir</button>
+                <button class="btn btn-ghost btn-sm" onclick="topluSifirla()">Düzeltmeleri Temizle</button>
                 <button class="btn btn-success btn-sm" onclick="topluTahsilat()">✅ Tümü Ödedi</button>
                 <button class="btn btn-ghost btn-sm" onclick="topluTahsilatSifirla()">Ödemeleri Sıfırla</button>
                 <button class="btn btn-success btn-sm" onclick="saveAy()">💾 Kaydet</button>
@@ -576,12 +576,12 @@ input:disabled { background: var(--surface2) !important; color: var(--ink2) !imp
           </div>
         </div>
 
-        <div class="stats-row" id="tahsilatStats" style="grid-template-columns:repeat(5,1fr);margin-bottom:14px"></div>
+        <div class="stats-row" id="tahsilatStats" style="grid-template-columns:repeat(6,1fr);margin-bottom:14px"></div>
 
         <div class="card">
           <div class="card-header">
             <span class="card-title">Aidat Tahsilat Girişi</span>
-            <span style="font-size:11px;color:var(--ink3)">Toplam borç otomatik hesaplanır: bu ay aidatı + geçmiş dönem devri &nbsp;|&nbsp; Kalan = toplam borç − ödeme</span>
+            <span style="font-size:11px;color:var(--ink3)">Sağlıklı akış: otomatik devir + manuel düzeltme + bu ay aidatı = toplam borç &nbsp;|&nbsp; Bakiye negatifse alacak olarak görünür</span>
           </div>
           <div style="overflow-x:auto">
             <table class="tbl">
@@ -590,10 +590,11 @@ input:disabled { background: var(--surface2) !important; color: var(--ink2) !imp
                   <th>NO</th>
                   <th>MALİK</th>
                   <th class="r">BU AY AİDATI (₺)</th>
-                  <th class="r">GEÇMİŞ DÖNEM / DEVİR (₺)</th>
+                  <th class="r">OTOMATİK DEVİR (₺)</th>
+                  <th class="r">DÜZELTME (+/-) (₺)</th>
                   <th class="r">TOPLAM BORÇ (₺)<br><span style="font-size:10px;color:var(--ink3);font-weight:500">otomatik</span></th>
                   <th class="r">BU AY ÖDEME (₺)</th>
-                  <th class="r">KALAN (₺)</th>
+                  <th class="r">BAKİYE (₺)</th>
                   <th class="c">DURUM</th>
                   <th>NOT</th>
                 </tr>
@@ -1237,44 +1238,72 @@ function topluBorclandir() {
   let sayac = 0;
   DB.malikler.forEach(m => {
     if (m.muaf) return;
-    const devir = devirBorcHesapla(m.id, activeAy);
     const t = DB.aylar[activeAy].tahsilat[m.id] || { odeme:0, not:'' };
-    DB.aylar[activeAy].tahsilat[m.id] = { ...t, devir };
-    const el = document.getElementById(`tb-devir-${m.id}`);
-    if (el) el.value = devir || '';
+    DB.aylar[activeAy].tahsilat[m.id] = { ...t, duzeltme: 0 };
+    const el = document.getElementById(`tb-duzeltme-${m.id}`);
+    if (el) el.value = '';
     sayac++;
   });
   onTahsilatChange(activeAy);
   const devirVar = DB.malikler.filter(m => !m.muaf && devirBorcHesapla(m.id, activeAy) !== 0).length;
-  toast(`${sayac} kişiye geçmiş dönem devri uygulandı${devirVar > 0 ? ` (${devirVar} kişide devir var)` : ''} ✓`);
+  toast(`${sayac} kişi için otomatik devir yeniden hesaplandı${devirVar > 0 ? ` (${devirVar} kişide geçmiş bakiye var)` : ''} ✓`);
 }
 
 function topluSifirla() {
   if (!activeAy) return;
-  if (!confirm('Bu ay için geçmiş dönem devirleri sıfırlanacak. Emin misiniz?')) return;
+  if (!confirm('Bu ay için manuel düzeltmeler temizlenecek. Otomatik devir korunur. Emin misiniz?')) return;
   ensureAyData(activeAy);
   DB.malikler.forEach(m => {
     if (m.muaf) return;
     if (!DB.aylar[activeAy].tahsilat[m.id]) DB.aylar[activeAy].tahsilat[m.id] = { odeme:0, not:'' };
-    DB.aylar[activeAy].tahsilat[m.id].devir = 0;
-    const el = document.getElementById(`tb-devir-${m.id}`);
+    DB.aylar[activeAy].tahsilat[m.id].duzeltme = 0;
+    const el = document.getElementById(`tb-duzeltme-${m.id}`);
     if (el) el.value = '';
   });
   onTahsilatChange(activeAy);
-  toast('Geçmiş dönem devirleri temizlendi');
+  toast('Manuel düzeltmeler temizlendi');
 }
 
 
 // ════════════════════════════════════════════════════════
 //  DEVİR BORÇ HESAPLAMA
 // ════════════════════════════════════════════════════════
-function tahsilatToplamBorcunuHesapla(t, ay) {
+function tahsilatToplamBorcunuHesapla(t, ay, autoDevirOverride = null) {
   const aidat = DB.aidatlar[ay] || 0;
+  const autoDevir = autoDevirOverride === null ? 0 : (parseFloat(autoDevirOverride) || 0);
+  if (t && Object.prototype.hasOwnProperty.call(t, 'duzeltme')) {
+    const duzeltme = parseFloat(t.duzeltme) || 0;
+    return aidat + autoDevir + duzeltme;
+  }
   if (t && Object.prototype.hasOwnProperty.call(t, 'devir')) {
     const devir = parseFloat(t.devir) || 0;
-    return Math.max(0, aidat + devir);
+    return aidat + devir;
   }
-  return Math.max(0, parseFloat(t?.borc) || 0);
+  return parseFloat(t?.borc) || 0;
+}
+
+function tahsilatKaydiNormalizeEt(malikId, ay, kayit = null) {
+  const t = kayit || ((DB.aylar[ay]?.tahsilat || {})[malikId]) || {};
+  const autoDevir = devirBorcHesapla(malikId, ay);
+  let duzeltme = 0;
+
+  if (Object.prototype.hasOwnProperty.call(t, 'duzeltme')) {
+    duzeltme = parseFloat(t.duzeltme) || 0;
+  } else if (Object.prototype.hasOwnProperty.call(t, 'devir')) {
+    duzeltme = (parseFloat(t.devir) || 0) - autoDevir;
+  }
+
+  const odeme = parseFloat(t.odeme) || 0;
+  const not = t.not || '';
+  const toplamBorc = aidatVeDevirToplami(ay, autoDevir, duzeltme);
+  const bakiye = toplamBorc - odeme;
+
+  return { autoDevir, duzeltme, odeme, not, toplamBorc, bakiye };
+}
+
+function aidatVeDevirToplami(ay, autoDevir, duzeltme) {
+  const aidat = DB.aidatlar[ay] || 0;
+  return aidat + (parseFloat(autoDevir) || 0) + (parseFloat(duzeltme) || 0);
 }
 
 // Bir malikin belirtilen aydan önceki toplam ödenmemiş borcunu hesaplar
@@ -1288,7 +1317,8 @@ function devirBorcHesapla(malikId, ay) {
     const ayD = DB.aylar[gecenAy];
     if (!ayD) continue;
     const t = (ayD.tahsilat || {})[malikId] || {};
-    const borc = tahsilatToplamBorcunuHesapla(t, gecenAy);
+    const oncekiAutoDevir = i === 0 ? 0 : devirBorcHesapla(malikId, gecenAy);
+    const borc = tahsilatToplamBorcunuHesapla(t, gecenAy, oncekiAutoDevir);
     const odeme = parseFloat(t.odeme) || 0;
     net += borc - odeme;
   }
@@ -1296,16 +1326,16 @@ function devirBorcHesapla(malikId, ay) {
 }
 
 // Bu ayın toplam borcunu hesaplar: aidat + devir
-function malikAylikBorcHesapla(malikId, ay, manuelDevir = null) {
-  const aidat = DB.aidatlar[ay] || 0;
-  const devir = manuelDevir === null ? devirBorcHesapla(malikId, ay) : (parseFloat(manuelDevir) || 0);
-  return Math.max(0, aidat + devir);
+function malikAylikBorcHesapla(malikId, ay, autoDevir = null, duzeltme = 0) {
+  const efektifAutoDevir = autoDevir === null ? devirBorcHesapla(malikId, ay) : (parseFloat(autoDevir) || 0);
+  return aidatVeDevirToplami(ay, efektifAutoDevir, duzeltme);
 }
 
 function tekOdemeToggle(ay, malikId) {
   ensureAyData(ay);
   const t = DB.aylar[ay].tahsilat[malikId] || {};
-  const borc = tahsilatToplamBorcunuHesapla(t, ay);
+  const kayit = tahsilatKaydiNormalizeEt(malikId, ay, t);
+  const borc = Math.max(0, kayit.toplamBorc);
   const odeme = parseFloat(t.odeme) || 0;
   // Eğer zaten tam ödendiyse sıfırla, değilse borca eşitle
   const yeniOdeme = (odeme >= borc && borc > 0) ? 0 : borc;
@@ -1328,7 +1358,7 @@ function topluTahsilat() {
     if (m.muaf) return;
     const t = DB.aylar[activeAy].tahsilat[m.id];
     if (!t) return;
-    const borc = tahsilatToplamBorcunuHesapla(t, activeAy);
+    const borc = Math.max(0, tahsilatKaydiNormalizeEt(m.id, activeAy, t).toplamBorc);
     if (borc <= 0) return;
     // Ödemeyi borca eşitle
     DB.aylar[activeAy].tahsilat[m.id].odeme = borc;
@@ -1378,129 +1408,153 @@ function renderTahsilat(ay) {
         <td class="r">—</td>
         <td class="r">—</td>
         <td class="r">—</td>
+        <td class="r">—</td>
         <td class="c">—</td>
         <td>—</td>
       </tr>`;
 
-    const t = (ayD.tahsilat||{})[m.id] || { devir:devirBorcHesapla(m.id, ay), odeme:0, not:'' };
-    const odeme = parseFloat(t.odeme)||0;
-    const devir = Object.prototype.hasOwnProperty.call(t, 'devir') ? (parseFloat(t.devir)||0) : devirBorcHesapla(m.id, ay);
+    const raw = (ayD.tahsilat||{})[m.id] || { odeme:0, not:'' };
+    const kayit = tahsilatKaydiNormalizeEt(m.id, ay, raw);
     const aylikAidat = DB.aidatlar[ay] || 0;
-    const borc = malikAylikBorcHesapla(m.id, ay, devir);
-    const kalan = Math.max(0, borc - odeme);
+    const toplamBorc = kayit.toplamBorc;
+    const bakiye = kayit.bakiye;
 
     let badge;
-    if (borc === 0 && odeme === 0) badge = `<span class="badge badge-gray">Girilmedi</span>`;
-    else if (kalan === 0 && borc > 0) badge = `<span class="badge badge-green">Ödendi ✓</span>`;
-    else if (odeme === 0) badge = `<span class="badge badge-red">Ödenmedi</span>`;
+    if (toplamBorc === 0 && kayit.odeme === 0) badge = `<span class="badge badge-gray">Girilmedi</span>`;
+    else if (bakiye < 0) badge = `<span class="badge badge-blue">Alacaklı</span>`;
+    else if (bakiye === 0 && toplamBorc > 0) badge = `<span class="badge badge-green">Ödendi ✓</span>`;
+    else if (kayit.odeme === 0) badge = `<span class="badge badge-red">Ödenmedi</span>`;
     else badge = `<span class="badge badge-amber">Kısmi</span>`;
 
-    const devirInfo = devir > 0
-      ? `<div style="font-size:10px;color:var(--amber);margin-top:2px">↩ ${tl(devir)} geçmiş dönem borcu</div>`
-      : devir < 0
-        ? `<div style="font-size:10px;color:var(--green);margin-top:2px">✚ ${tl(-devir)} alacak devri</div>`
+    const devirInfo = kayit.autoDevir > 0
+      ? `<div style="font-size:10px;color:var(--amber);margin-top:2px">↩ ${tl(kayit.autoDevir)} otomatik geçmiş borç</div>`
+      : kayit.autoDevir < 0
+        ? `<div style="font-size:10px;color:var(--green);margin-top:2px">✚ ${tl(-kayit.autoDevir)} otomatik alacak devri</div>`
         : '';
+
+    const duzeltmeInfo = kayit.duzeltme !== 0
+      ? `<div style="font-size:10px;color:${kayit.duzeltme>0?'var(--amber)':'var(--green)'};margin-top:2px">✎ ${kayit.duzeltme>0?'+':''}${tl(Math.abs(kayit.duzeltme))} manuel düzeltme</div>`
+      : '';
+
+    const bakiyeText = bakiye < 0 ? `Alacak ${tl(Math.abs(bakiye))}` : tl(Math.max(0, bakiye));
+    const bakiyeColor = bakiye < 0 ? 'var(--blue)' : bakiye > 0 ? 'var(--red)' : 'var(--green)';
 
     return `
       <tr>
         <td style="font-family:var(--mono);color:var(--ink3);font-size:11px">${m.no}</td>
-        <td style="font-weight:500">${m.isim}${devirInfo}</td>
+        <td style="font-weight:500">${m.isim}${devirInfo}${duzeltmeInfo}</td>
         <td class="r" style="font-family:var(--mono);font-size:12px">${tl(aylikAidat)}</td>
-        <td class="r"><input type="number" class="input-num" style="width:120px;color:${devir > 0 ? 'var(--amber)' : devir < 0 ? 'var(--green)' : 'var(--ink2)'};font-weight:700" id="tb-devir-${m.id}" value="${devir||''}" placeholder="0" oninput="onTahsilatChange('${ay}')"></td>
-        <td class="r" id="tb-borc-${m.id}" style="font-family:var(--mono);font-size:12px;font-weight:700;color:var(--red)">${tl(borc)}</td>
+        <td class="r" id="tb-autoDevir-${m.id}" style="font-family:var(--mono);font-size:12px;color:${kayit.autoDevir > 0 ? 'var(--amber)' : kayit.autoDevir < 0 ? 'var(--green)' : 'var(--ink2)'};font-weight:700">${kayit.autoDevir === 0 ? '—' : (kayit.autoDevir > 0 ? tl(kayit.autoDevir) : '+' + tl(-kayit.autoDevir))}</td>
+        <td class="r"><input type="number" class="input-num" style="width:110px;color:${kayit.duzeltme > 0 ? 'var(--amber)' : kayit.duzeltme < 0 ? 'var(--green)' : 'var(--ink2)'};font-weight:700" id="tb-duzeltme-${m.id}" value="${kayit.duzeltme||''}" placeholder="0" oninput="onTahsilatChange('${ay}')"></td>
+        <td class="r" id="tb-borc-${m.id}" style="font-family:var(--mono);font-size:12px;font-weight:700;color:${toplamBorc>=0?'var(--red)':'var(--blue)'}">${toplamBorc >= 0 ? tl(toplamBorc) : '+' + tl(-toplamBorc)}</td>
         <td class="r" style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
-          <input type="number" class="input-num" style="width:90px;background:var(--green-light);color:var(--green)" id="tb-odeme-${m.id}" value="${odeme||''}" placeholder="0" oninput="onTahsilatChange('${ay}')">
+          <input type="number" class="input-num" style="width:90px;background:var(--green-light);color:var(--green)" id="tb-odeme-${m.id}" value="${kayit.odeme||''}" placeholder="0" oninput="onTahsilatChange('${ay}')">
           <button title="Tamamını ödedi işaretle" style="background:none;border:1px solid var(--border2);border-radius:4px;cursor:pointer;padding:5px 7px;font-size:13px;flex-shrink:0" onclick="tekOdemeToggle('${ay}',${m.id})">✓</button>
         </td>
-        <td class="r" id="tb-kalan-${m.id}" style="font-family:var(--mono);font-size:12px;color:${kalan>0?'var(--red)':'var(--green)'};font-weight:700">${kalan > 0 ? tl(kalan) : '0 ₺'}</td>
+        <td class="r" id="tb-kalan-${m.id}" style="font-family:var(--mono);font-size:12px;color:${bakiyeColor};font-weight:700">${bakiyeText}</td>
         <td class="c" id="tb-status-${m.id}">${badge}</td>
-        <td><input type="text" class="input-text" style="font-size:12px;padding:5px 8px;max-width:160px" id="tb-not-${m.id}" value="${t.not||''}" placeholder="—"></td>
+        <td><input type="text" class="input-text" style="font-size:12px;padding:5px 8px;max-width:160px" id="tb-not-${m.id}" value="${kayit.not||''}" placeholder="—"></td>
       </tr>`;
   }).join('');
 
   renderTahsilatFoot(ay);
 }
 
-function renderTahsilatStats(ay, toplamAidat, toplamDevir, toplamBorc, toplamOdeme) {
+function renderTahsilatStats(ay, toplamAidat, toplamAutoDevir, toplamDuzeltme, toplamBorc, toplamOdeme, toplamAlacak) {
   const kalan = Math.max(0, toplamBorc - toplamOdeme);
   document.getElementById('tahsilatStats').innerHTML = `
     <div class="stat-card c-blue"><div class="s-label">Bu Ay Aidat Toplamı</div><div class="s-val">${tl(toplamAidat)}</div><div class="s-sub">Sadece ilgili ay</div></div>
-    <div class="stat-card c-amber"><div class="s-label">Geçmiş Dönem Devri</div><div class="s-val">${tl(toplamDevir)}</div><div class="s-sub">Düzenlenebilir devir tutarı</div></div>
-    <div class="stat-card c-red"><div class="s-label">Toplam Borç</div><div class="s-val">${tl(toplamBorc)}</div><div class="s-sub">Aidat + devir</div></div>
+    <div class="stat-card c-amber"><div class="s-label">Otomatik Devir</div><div class="s-val">${tl(toplamAutoDevir)}</div><div class="s-sub">Önceki aylardan gelen net bakiye</div></div>
+    <div class="stat-card ${toplamDuzeltme>=0?'c-amber':'c-green'}"><div class="s-label">Manuel Düzeltme</div><div class="s-val">${toplamDuzeltme===0?'0 ₺':(toplamDuzeltme>0?tl(toplamDuzeltme):'-'+tl(Math.abs(toplamDuzeltme)))}</div><div class="s-sub">Sadece fark girilir</div></div>
+    <div class="stat-card c-red"><div class="s-label">Toplam Borç</div><div class="s-val">${tl(toplamBorc)}</div><div class="s-sub">Aidat + otomatik devir + düzeltme</div></div>
     <div class="stat-card c-green"><div class="s-label">Toplanan Ödeme</div><div class="s-val">${tl(toplamOdeme)}</div><div class="s-sub">Bu ay girilen ödeme</div></div>
-    <div class="stat-card ${kalan>0?'c-red':'c-green'}"><div class="s-label">Kalan Borç</div><div class="s-val">${tl(kalan)}</div><div class="s-sub">Tahsil edilmemiş bakiye</div></div>
+    <div class="stat-card ${toplamAlacak>0?'c-blue':kalan>0?'c-red':'c-green'}"><div class="s-label">Net Bakiye</div><div class="s-val">${toplamAlacak>0?'Alacak '+tl(toplamAlacak):tl(kalan)}</div><div class="s-sub">Borç kalanı veya fazla ödeme</div></div>
   `;
 }
 
 function onTahsilatChange(ay) {
   ensureAyData(ay);
-  let toplamAidat=0, toplamDevir=0, toplamBorc=0, toplamOdeme=0;
+  let toplamAidat=0, toplamAutoDevir=0, toplamDuzeltme=0, toplamBorc=0, toplamOdeme=0, toplamAlacak=0;
 
   DB.malikler.forEach(m => {
     if (m.muaf) return;
     const aylikAidat = DB.aidatlar[ay] || 0;
-    const varsayilanDevir = devirBorcHesapla(m.id, ay);
-    const devirEl = document.getElementById(`tb-devir-${m.id}`);
-    const devir = parseFloat(devirEl?.value);
-    const efektifDevir = Number.isFinite(devir) ? devir : varsayilanDevir;
-    const borc  = malikAylikBorcHesapla(m.id, ay, efektifDevir);
+    const autoDevir = devirBorcHesapla(m.id, ay);
+    const duzeltmeEl = document.getElementById(`tb-duzeltme-${m.id}`);
+    const duzeltme = parseFloat(duzeltmeEl?.value) || 0;
+    const toplam = malikAylikBorcHesapla(m.id, ay, autoDevir, duzeltme);
     const odeme = parseFloat(document.getElementById(`tb-odeme-${m.id}`)?.value)||0;
-    const kalan = Math.max(0, borc - odeme);
+    const bakiye = toplam - odeme;
 
     toplamAidat += aylikAidat;
-    toplamDevir += efektifDevir;
-    toplamBorc += borc;
+    toplamAutoDevir += autoDevir;
+    toplamDuzeltme += duzeltme;
+    toplamBorc += Math.max(0, toplam);
     toplamOdeme += odeme;
+    toplamAlacak += Math.max(0, -bakiye);
+
+    const autoEl = document.getElementById(`tb-autoDevir-${m.id}`);
+    if (autoEl) {
+      autoEl.textContent = autoDevir === 0 ? '—' : (autoDevir > 0 ? tl(autoDevir) : '+' + tl(-autoDevir));
+      autoEl.style.color = autoDevir > 0 ? 'var(--amber)' : autoDevir < 0 ? 'var(--green)' : 'var(--ink2)';
+    }
 
     const borcEl = document.getElementById(`tb-borc-${m.id}`);
-    if (borcEl) borcEl.textContent = tl(borc);
+    if (borcEl) {
+      borcEl.textContent = toplam >= 0 ? tl(toplam) : '+' + tl(-toplam);
+      borcEl.style.color = toplam >= 0 ? 'var(--red)' : 'var(--blue)';
+    }
 
     const kalanEl = document.getElementById(`tb-kalan-${m.id}`);
     if (kalanEl) {
-      kalanEl.textContent = tl(kalan);
-      kalanEl.style.color = kalan > 0 ? 'var(--red)' : 'var(--green)';
+      kalanEl.textContent = bakiye < 0 ? `Alacak ${tl(Math.abs(bakiye))}` : tl(Math.max(0, bakiye));
+      kalanEl.style.color = bakiye < 0 ? 'var(--blue)' : bakiye > 0 ? 'var(--red)' : 'var(--green)';
     }
 
     const stEl = document.getElementById(`tb-status-${m.id}`);
     if (stEl) {
       let badge;
-      if (borc === 0 && odeme === 0) badge = `<span class="badge badge-gray">Girilmedi</span>`;
-      else if (kalan === 0 && borc > 0) badge = `<span class="badge badge-green">Ödendi ✓</span>`;
+      if (toplam === 0 && odeme === 0) badge = `<span class="badge badge-gray">Girilmedi</span>`;
+      else if (bakiye < 0) badge = `<span class="badge badge-blue">Alacaklı</span>`;
+      else if (bakiye === 0 && toplam > 0) badge = `<span class="badge badge-green">Ödendi ✓</span>`;
       else if (odeme === 0) badge = `<span class="badge badge-red">Ödenmedi</span>`;
       else badge = `<span class="badge badge-amber">Kısmi</span>`;
       stEl.innerHTML = badge;
     }
   });
 
-  renderTahsilatFoot(ay, toplamAidat, toplamDevir, toplamBorc, toplamOdeme);
+  renderTahsilatFoot(ay, toplamAidat, toplamAutoDevir, toplamDuzeltme, toplamBorc, toplamOdeme, toplamAlacak);
 }
 
-function renderTahsilatFoot(ay, toplamAidat, toplamDevir, toplamBorc, toplamOdeme) {
+function renderTahsilatFoot(ay, toplamAidat, toplamAutoDevir, toplamDuzeltme, toplamBorc, toplamOdeme, toplamAlacak) {
   if (toplamBorc === undefined) {
-    toplamAidat = 0; toplamDevir = 0; toplamBorc = 0; toplamOdeme = 0;
+    toplamAidat = 0; toplamAutoDevir = 0; toplamDuzeltme = 0; toplamBorc = 0; toplamOdeme = 0; toplamAlacak = 0;
     DB.malikler.forEach(m => {
       if (m.muaf) return;
       const aylikAidat = DB.aidatlar[ay] || 0;
       const t = (DB.aylar[ay]?.tahsilat||{})[m.id]||{};
-      const devir = Object.prototype.hasOwnProperty.call(t, 'devir') ? (parseFloat(t.devir)||0) : devirBorcHesapla(m.id, ay);
+      const kayit = tahsilatKaydiNormalizeEt(m.id, ay, t);
       toplamAidat += aylikAidat;
-      toplamDevir += devir;
-      toplamBorc += malikAylikBorcHesapla(m.id, ay, devir);
-      toplamOdeme += parseFloat(t.odeme)||0;
+      toplamAutoDevir += kayit.autoDevir;
+      toplamDuzeltme += kayit.duzeltme;
+      toplamBorc += Math.max(0, kayit.toplamBorc);
+      toplamOdeme += kayit.odeme;
+      toplamAlacak += Math.max(0, -kayit.bakiye);
     });
   }
 
   const kalan = Math.max(0, toplamBorc - toplamOdeme);
-  renderTahsilatStats(ay, toplamAidat, toplamDevir, toplamBorc, toplamOdeme);
+  renderTahsilatStats(ay, toplamAidat, toplamAutoDevir, toplamDuzeltme, toplamBorc, toplamOdeme, toplamAlacak);
 
   document.getElementById('tahsilatFoot').innerHTML = `
     <tr>
       <td colspan="2"><b>TOPLAM</b></td>
       <td class="r">${tl(toplamAidat)}</td>
-      <td class="r" style="color:${toplamDevir>0?'var(--amber)':toplamDevir<0?'var(--green)':'var(--ink2)'}">${toplamDevir===0?'—':(toplamDevir>0?tl(toplamDevir):'+'+tl(-toplamDevir))}</td>
+      <td class="r" style="color:${toplamAutoDevir>0?'var(--amber)':toplamAutoDevir<0?'var(--green)':'var(--ink2)'}">${toplamAutoDevir===0?'—':(toplamAutoDevir>0?tl(toplamAutoDevir):'+'+tl(-toplamAutoDevir))}</td>
+      <td class="r" style="color:${toplamDuzeltme>0?'var(--amber)':toplamDuzeltme<0?'var(--green)':'var(--ink2)'}">${toplamDuzeltme===0?'—':(toplamDuzeltme>0?tl(toplamDuzeltme):'-'+tl(Math.abs(toplamDuzeltme)))}</td>
       <td class="r" style="color:var(--red);font-weight:700">${tl(toplamBorc)}</td>
       <td class="r" style="color:var(--green)">${tl(toplamOdeme)}</td>
-      <td class="r" style="color:${kalan>0?'var(--red)':'var(--green)'};font-weight:700">${tl(kalan)}</td>
+      <td class="r" style="color:${toplamAlacak>0?'var(--blue)':kalan>0?'var(--red)':'var(--green)'};font-weight:700">${toplamAlacak>0?'Alacak '+tl(toplamAlacak):tl(kalan)}</td>
       <td colspan="2"></td>
     </tr>`;
 }
@@ -1517,14 +1571,17 @@ function saveAy() {
   // Tahsilat kaydet
   DB.malikler.forEach(m => {
     if (m.muaf) return;
-    const dEl = document.getElementById(`tb-devir-${m.id}`);
+    const dEl = document.getElementById(`tb-duzeltme-${m.id}`);
     const oEl = document.getElementById(`tb-odeme-${m.id}`);
     const nEl = document.getElementById(`tb-not-${m.id}`);
     if (dEl || oEl) {
-      const devir = parseFloat(dEl?.value) || 0;
+      const autoDevir = devirBorcHesapla(m.id, activeAy);
+      const duzeltme = parseFloat(dEl?.value) || 0;
       DB.aylar[activeAy].tahsilat[m.id] = {
-        devir,
-        borc: malikAylikBorcHesapla(m.id, activeAy, devir),
+        autoDevir,
+        duzeltme,
+        devir: autoDevir + duzeltme,
+        borc: malikAylikBorcHesapla(m.id, activeAy, autoDevir, duzeltme),
         odeme: parseFloat(oEl?.value)||0,
         not:   nEl?.value||''
       };
