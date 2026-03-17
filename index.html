@@ -594,7 +594,7 @@ input:disabled { background: var(--surface2) !important; color: var(--ink2) !imp
         <div class="card">
           <div class="card-header">
             <span class="card-title">Aidat Tahsilat Girişi</span>
-            <span style="font-size:11px;color:var(--ink3)">Sağlıklı akış: otomatik devir + manuel düzeltme + bu ay aidatı = toplam borç &nbsp;|&nbsp; Bakiye negatifse alacak olarak görünür</span>
+            <span style="font-size:11px;color:var(--ink3)">Sağlıklı akış: otomatik devir + manuel düzeltme + bu ay aidatı = toplam borç &nbsp;|&nbsp; Ay işlenmeden borç oluşmaz, gelecek aylarda alacak görünmez</span>
           </div>
           <div style="overflow-x:auto">
             <table class="tbl">
@@ -827,6 +827,7 @@ function updateSaveStatus(state='idle', extra='') {
 
 function markDirty(message='• Değişiklik var') {
   if (!IS_ADMIN) return;
+  DB.aylar[activeAy].aktif = ayKaydindaDegerVarMi(activeAy);
   AUTO_SAVE_PENDING = true;
   saveLocalDraft();
   updateSaveStatus('dirty', message);
@@ -1133,6 +1134,7 @@ function saveGiderKalem() {
 
 function deleteGiderKalem(i) {
   DB.giderKalemleri.splice(i,1);
+  DB.aylar[activeAy].aktif = ayKaydindaDegerVarMi(activeAy);
   AUTO_SAVE_PENDING = true;
   performAutoSave(true); renderGiderKalemTable();
 }
@@ -1141,9 +1143,77 @@ function deleteGiderKalem(i) {
 //  AY SAYFASI
 // ════════════════════════════════════════════════════════
 function ensureAyData(ay) {
-  if (!DB.aylar[ay]) DB.aylar[ay] = { giderler:{}, tahsilat:{} };
+  if (!DB.aylar[ay]) DB.aylar[ay] = { giderler:{}, tahsilat:{}, aktif:false };
   if (!DB.aylar[ay].giderler) DB.aylar[ay].giderler = {};
   if (!DB.aylar[ay].tahsilat) DB.aylar[ay].tahsilat = {};
+  if (typeof DB.aylar[ay].aktif !== 'boolean') DB.aylar[ay].aktif = false;
+}
+
+
+function ayKaydindaDegerVarMi(ay) {
+  ensureAyData(ay);
+  const ayD = DB.aylar[ay];
+  const giderVar = Object.values(ayD.giderler || {}).some(v => (parseFloat(v) || 0) !== 0);
+  const tahsilatVar = Object.values(ayD.tahsilat || {}).some(t => {
+    if (!t) return false;
+    return (parseFloat(t.odeme) || 0) !== 0 ||
+           (parseFloat(t.duzeltme) || 0) !== 0 ||
+           (parseFloat(t.devir) || 0) !== 0 ||
+           (parseFloat(t.borc) || 0) !== 0 ||
+           String(t.not || '').trim() !== '';
+  });
+  return giderVar || tahsilatVar;
+}
+
+function aktifAyMi(ay) {
+  ensureAyData(ay);
+  return !!DB.aylar[ay].aktif || ayKaydindaDegerVarMi(ay);
+}
+
+function aktifAyYap(ay) {
+  ensureAyData(ay);
+  DB.aylar[ay].aktif = true;
+}
+
+function aylikBorcIslenecekMi(ay, malikId = null) {
+  if (aktifAyMi(ay)) return true;
+  if (activeAy !== ay) return false;
+  if (malikId === null) return false;
+  const dEl = document.getElementById(`tb-duzeltme-${malikId}`);
+  const oEl = document.getElementById(`tb-odeme-${malikId}`);
+  const nEl = document.getElementById(`tb-not-${malikId}`);
+  return (parseFloat(dEl?.value) || 0) !== 0 ||
+         (parseFloat(oEl?.value) || 0) !== 0 ||
+         String(nEl?.value || '').trim() !== '';
+}
+
+function showTahsilatDetay(ay, malikId) {
+  const malik = DB.malikler.find(x => x.id === malikId);
+  if (!malik) return;
+  const kayit = tahsilatKaydiNormalizeEt(malikId, ay);
+  const aktif = aylikBorcIslenecekMi(ay, malikId);
+  const aidat = aktif ? (DB.aidatlar[ay] || 0) : 0;
+  const oncekiAylar = AYLAR.slice(0, AYLAR.indexOf(ay)).filter(a => aktifAyMi(a));
+  const sonAktifAy = oncekiAylar.length ? oncekiAylar[oncekiAylar.length - 1] : null;
+  const baslik = `${malik.isim} / ${ay} hesap detayı`;
+  const satirlar = [baslik, ''];
+  if (!aktif) {
+    satirlar.push('Bu ay henüz işlenmediği için borç oluşturulmadı.');
+    satirlar.push('Ay için ödeme/düzeltme girince veya kaydedince borç hesaplanır.');
+  } else {
+    satirlar.push(`Bu Ay Aidatı: ${tl(aidat)}`);
+    satirlar.push(`Otomatik Devir: ${kayit.autoDevir >= 0 ? tl(kayit.autoDevir) : '-'+tl(Math.abs(kayit.autoDevir))}`);
+    satirlar.push(`Manuel Düzeltme: ${kayit.duzeltme >= 0 ? tl(kayit.duzeltme) : '-'+tl(Math.abs(kayit.duzeltme))}`);
+    satirlar.push('');
+    satirlar.push(`Toplam Borç = ${tl(aidat)} + ${kayit.autoDevir >= 0 ? tl(kayit.autoDevir) : '-'+tl(Math.abs(kayit.autoDevir))} + ${kayit.duzeltme >= 0 ? tl(kayit.duzeltme) : '-'+tl(Math.abs(kayit.duzeltme))}`);
+    satirlar.push(`Toplam Borç = ${tl(kayit.toplamBorc)}`);
+    satirlar.push(`Ödeme = ${tl(kayit.odeme)}`);
+    satirlar.push(`Net Bakiye = ${kayit.bakiye < 0 ? 'Alacak ' + tl(Math.abs(kayit.bakiye)) : tl(kayit.bakiye)}`);
+  }
+  satirlar.push('');
+  satirlar.push(`Son aktif ay: ${sonAktifAy || 'Yok'}`);
+  satirlar.push('Not: Gelecek aylar işlenmeden borç/alacak gösterilmez.');
+  alert(satirlar.join('\n'));
 }
 
 function renderAy(ay) {
@@ -1415,7 +1485,7 @@ function tahsilatToplamBorcunuHesapla(t, ay, autoDevirOverride = null) {
 
 function tahsilatKaydiNormalizeEt(malikId, ay, kayit = null) {
   const t = kayit || ((DB.aylar[ay]?.tahsilat || {})[malikId]) || {};
-  const autoDevir = devirBorcHesapla(malikId, ay);
+  const autoDevir = aylikBorcIslenecekMi(ay, malikId) ? devirBorcHesapla(malikId, ay) : 0;
   let duzeltme = 0;
 
   if (Object.prototype.hasOwnProperty.call(t, 'duzeltme')) {
@@ -1426,7 +1496,7 @@ function tahsilatKaydiNormalizeEt(malikId, ay, kayit = null) {
 
   const odeme = parseFloat(t.odeme) || 0;
   const not = t.not || '';
-  const toplamBorc = aidatVeDevirToplami(ay, autoDevir, duzeltme);
+  const toplamBorc = aylikBorcIslenecekMi(ay, malikId) ? aidatVeDevirToplami(ay, autoDevir, duzeltme) : 0;
   const bakiye = toplamBorc - odeme;
 
   return { autoDevir, duzeltme, odeme, not, toplamBorc, bakiye };
@@ -1446,6 +1516,7 @@ function devirBorcHesapla(malikId, ay) {
   let devredenBakiye = 0;
   for (let i = 0; i < ayIdx; i++) {
     const gecenAy = AYLAR[i];
+    if (!aktifAyMi(gecenAy)) continue;
     const t = ((DB.aylar[gecenAy]?.tahsilat) || {})[malikId] || {};
     const aidat = DB.aidatlar[gecenAy] || 0;
     const odeme = parseFloat(t.odeme) || 0;
@@ -1466,11 +1537,12 @@ function devirBorcHesapla(malikId, ay) {
     devredenBakiye = toplamBorc - odeme;
   }
 
-  return devredenBakiye;
+  return Math.max(0, devredenBakiye);
 }
 
 // Bu ayın toplam borcunu hesaplar: aidat + devir
 function malikAylikBorcHesapla(malikId, ay, autoDevir = null, duzeltme = 0) {
+  if (!aylikBorcIslenecekMi(ay, malikId)) return 0;
   const efektifAutoDevir = autoDevir === null ? devirBorcHesapla(malikId, ay) : (parseFloat(autoDevir) || 0);
   return aidatVeDevirToplami(ay, efektifAutoDevir, duzeltme);
 }
@@ -1586,7 +1658,7 @@ function renderTahsilat(ay) {
     return `
       <tr>
         <td style="font-family:var(--mono);color:var(--ink3);font-size:11px">${m.no}</td>
-        <td style="font-weight:500">${m.isim}${devirInfo}${duzeltmeInfo}</td>
+        <td style="font-weight:500">${m.isim} <button title="Hesap detayı" style="background:none;border:1px solid var(--border2);border-radius:4px;cursor:pointer;padding:1px 6px;font-size:11px" onclick="showTahsilatDetay('${ay}',${m.id})">i</button>${!aylikBorcIslenecekMi(ay, m.id)?'<div style="font-size:10px;color:var(--ink3);margin-top:2px">Bu ay henüz işlenmedi</div>':''}${devirInfo}${duzeltmeInfo}</td>
         <td class="r" style="font-family:var(--mono);font-size:12px">${tl(aylikAidat)}</td>
         <td class="r" id="tb-autoDevir-${m.id}" style="font-family:var(--mono);font-size:12px;color:${kayit.autoDevir > 0 ? 'var(--amber)' : kayit.autoDevir < 0 ? 'var(--green)' : 'var(--ink2)'};font-weight:700">${kayit.autoDevir === 0 ? '—' : (kayit.autoDevir > 0 ? tl(kayit.autoDevir) : '+' + tl(-kayit.autoDevir))}</td>
         <td class="r"><input type="number" class="input-num" style="width:110px;color:${kayit.duzeltme > 0 ? 'var(--amber)' : kayit.duzeltme < 0 ? 'var(--green)' : 'var(--ink2)'};font-weight:700" id="tb-duzeltme-${m.id}" value="${kayit.duzeltme||''}" placeholder="0" oninput="onTahsilatChange('${ay}')"></td>
@@ -1622,11 +1694,12 @@ function onTahsilatChange(ay) {
 
   DB.malikler.forEach(m => {
     if (m.muaf) return;
-    const aylikAidat = DB.aidatlar[ay] || 0;
-    const autoDevir = devirBorcHesapla(m.id, ay);
+    const islenecek = aylikBorcIslenecekMi(ay, m.id);
+    const aylikAidat = islenecek ? (DB.aidatlar[ay] || 0) : 0;
+    const autoDevir = islenecek ? devirBorcHesapla(m.id, ay) : 0;
     const duzeltmeEl = document.getElementById(`tb-duzeltme-${m.id}`);
     const duzeltme = parseFloat(duzeltmeEl?.value) || 0;
-    const toplam = malikAylikBorcHesapla(m.id, ay, autoDevir, duzeltme);
+    const toplam = islenecek ? malikAylikBorcHesapla(m.id, ay, autoDevir, duzeltme) : 0;
     const odeme = parseFloat(document.getElementById(`tb-odeme-${m.id}`)?.value)||0;
     const bakiye = toplam - odeme;
 
@@ -1676,9 +1749,9 @@ function renderTahsilatFoot(ay, toplamAidat, toplamAutoDevir, toplamDuzeltme, to
     toplamAidat = 0; toplamAutoDevir = 0; toplamDuzeltme = 0; toplamBorc = 0; toplamOdeme = 0; toplamAlacak = 0;
     DB.malikler.forEach(m => {
       if (m.muaf) return;
-      const aylikAidat = DB.aidatlar[ay] || 0;
       const t = (DB.aylar[ay]?.tahsilat||{})[m.id]||{};
       const kayit = tahsilatKaydiNormalizeEt(m.id, ay, t);
+      const aylikAidat = aylikBorcIslenecekMi(ay, m.id) ? (DB.aidatlar[ay] || 0) : 0;
       toplamAidat += aylikAidat;
       toplamAutoDevir += kayit.autoDevir;
       toplamDuzeltme += kayit.duzeltme;
@@ -1708,7 +1781,7 @@ function saveAy() {
   if (!IS_ADMIN) { toast('Düzenleme için yönetici girişi gerekli', 'err'); return; }
   if (!activeAy) return;
   ensureAyData(activeAy);
-  // Gider kaydet
+  // Ay işlenmişse aktifleşsin
   DB.giderKalemleri.forEach(k => {
     const el = document.getElementById(`g-${k}`);
     if (el) DB.aylar[activeAy].giderler[k] = parseFloat(el.value)||0;
@@ -1732,6 +1805,7 @@ function saveAy() {
       };
     }
   });
+  DB.aylar[activeAy].aktif = ayKaydindaDegerVarMi(activeAy);
   AUTO_SAVE_PENDING = true;
   performAutoSave(true);
   renderSidebar();
