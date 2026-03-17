@@ -157,7 +157,15 @@ body { font-family: var(--sans); background: var(--bg); color: var(--ink); min-h
   box-shadow: var(--shadow);
 }
 .topbar-title { font-size: 16px; font-weight: 700; }
-.topbar-actions { display: flex; gap: 8px; }
+.topbar-actions { display: flex; gap: 8px; align-items:center; flex-wrap:wrap; }
+.save-chip {
+  display:inline-flex; align-items:center; gap:6px;
+  padding:6px 10px; border-radius:20px; font-size:11px; font-weight:700;
+  border:1px solid var(--border); background:var(--surface2); color:var(--ink3);
+}
+.save-chip.ok { background: var(--green-light); color: var(--green); border-color:#bbf7d0; }
+.save-chip.warn { background: var(--amber-light); color: var(--amber); border-color:#fde68a; }
+.save-chip.err { background: var(--red-light); color: var(--red); border-color:#fecaca; }
 
 .content { padding: 24px 28px 60px; }
 
@@ -410,6 +418,7 @@ input:disabled { background: var(--surface2) !important; color: var(--ink2) !imp
     <div style="display:flex;align-items:center;gap:8px">
       <span id="adminStatusBadge" class="guest-badge" onclick="openLoginOverlay()">👤 Misafir</span>
       <div class="topbar-actions" id="topbarActions"></div>
+  <div class="save-chip" id="saveStatusChip">💾 Kayıt bekleniyor</div>
     </div>
   </div>
 
@@ -535,7 +544,11 @@ input:disabled { background: var(--surface2) !important; color: var(--ink2) !imp
             <div class="card">
               <div class="card-header">
                 <span class="card-title">Gider Kalemleri</span>
-                <button class="btn btn-success btn-sm admin-only" onclick="saveAy()">💾 Kaydet</button>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <button class="btn btn-ghost btn-sm admin-only" onclick="temizleAyniGiderleriSonrakiAylardan()">🧹 Aynı Giderleri Sonraki Aylardan Temizle</button>
+                  <button class="btn btn-danger btn-sm admin-only" onclick="temizleBuAyGiderleri()">Bu Ay Giderlerini Temizle</button>
+                  <button class="btn btn-success btn-sm admin-only" onclick="saveAy()">💾 Kaydet</button>
+                </div>
               </div>
               <div style="padding:4px 0" id="giderInputList"></div>
               <div style="padding:12px 18px;border-top:2px solid var(--border);display:flex;justify-content:space-between;align-items:center">
@@ -740,6 +753,9 @@ function defaultDB() {
 let DB;
 let IS_ADMIN = false;
 let FIREBASE_APP, FIRESTORE;
+let AUTO_SAVE_TIMER = null;
+let AUTO_SAVE_PENDING = false;
+let LAST_SAVE_AT = null;
 
 async function initFirebase() {
   const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
@@ -783,15 +799,66 @@ async function loadDB() {
   }
 }
 
-async function saveDB() {
+function saveLocalDraft() {
+  try { localStorage.setItem('apt2026', JSON.stringify(DB)); } catch(e) {}
+}
+
+function updateSaveStatus(state='idle', extra='') {
+  const el = document.getElementById('saveStatusChip');
+  if (!el) return;
+  el.className = 'save-chip';
+  if (state === 'saved') {
+    el.classList.add('ok');
+    const timeTxt = LAST_SAVE_AT ? ` · ${LAST_SAVE_AT}` : '';
+    el.textContent = `✓ Otomatik kaydedildi${timeTxt}`;
+  } else if (state === 'saving') {
+    el.classList.add('warn');
+    el.textContent = '… Kaydediliyor';
+  } else if (state === 'dirty') {
+    el.classList.add('warn');
+    el.textContent = extra || '• Kaydedilmedi';
+  } else if (state === 'error') {
+    el.classList.add('err');
+    el.textContent = extra || 'Kayıt hatası';
+  } else {
+    el.textContent = extra || '💾 Kayıt bekleniyor';
+  }
+}
+
+function markDirty(message='• Değişiklik var') {
   if (!IS_ADMIN) return;
+  AUTO_SAVE_PENDING = true;
+  saveLocalDraft();
+  updateSaveStatus('dirty', message);
+  if (AUTO_SAVE_TIMER) clearTimeout(AUTO_SAVE_TIMER);
+  AUTO_SAVE_TIMER = setTimeout(() => { performAutoSave(); }, 900);
+}
+
+async function performAutoSave(showToast=false) {
+  if (!IS_ADMIN || !AUTO_SAVE_PENDING) return;
+  updateSaveStatus('saving');
+  const ok = await saveDB(false);
+  if (ok) {
+    AUTO_SAVE_PENDING = false;
+    LAST_SAVE_AT = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+    updateSaveStatus('saved');
+    if (showToast) toast('Kaydedildi ✓');
+  }
+}
+
+async function saveDB(showToastOnError = true) {
+  if (!IS_ADMIN) return false;
+  saveLocalDraft();
   try {
     const ref = window._fsDoc(FIRESTORE, 'apartman', '2026');
     await window._fsSet(ref, JSON.parse(JSON.stringify(DB)));
-    try { localStorage.setItem('apt2026', JSON.stringify(DB)); } catch(e) {}
+    saveLocalDraft();
+    return true;
   } catch(e) {
     console.warn('Firebase yazılamadi:', e);
-    toast('Kayıt başarısız — internet bağlantısını kontrol edin', 'err');
+    updateSaveStatus('error', 'Yerelde saklandı · internet yok');
+    if (showToastOnError) toast('İnternet yoksa veriler bu cihazda saklandı', 'err');
+    return false;
   }
 }
 
@@ -986,8 +1053,7 @@ function saveGenelAyarlar() {
   DB.genel.aptAdi = document.getElementById('cfg-aptAdi').value;
   DB.genel.yil = parseInt(document.getElementById('cfg-yil').value)||2026;
   DB.genel.kasaAcilis = parseFloat(document.getElementById('cfg-kasaAcilis').value)||0;
-  saveDB();
-  toast('Genel ayarlar kaydedildi ✓');
+  performAutoSave(true);
 }
 
 function renderMaliklerTable() {
@@ -1037,14 +1103,14 @@ function saveMalik() {
     const maxId = Math.max(0,...DB.malikler.map(m=>m.id));
     DB.malikler.push({ id:maxId+1, no, isim, muaf });
   }
-  saveDB(); closeModal('malikModal'); renderMaliklerTable();
+  performAutoSave(true); closeModal('malikModal'); renderMaliklerTable();
   toast('Malik kaydedildi ✓');
 }
 
 function deleteMalik(id) {
   if (!confirm('Bu maliki silmek istediğinize emin misiniz?')) return;
   DB.malikler = DB.malikler.filter(m=>m.id!==id);
-  saveDB(); renderMaliklerTable();
+  performAutoSave(true); renderMaliklerTable();
 }
 
 function openGiderKalemModal() {
@@ -1056,13 +1122,14 @@ function saveGiderKalem() {
   const isim = document.getElementById('gk-isim').value.trim();
   if (!isim) { toast('Kalem adı zorunlu','err'); return; }
   DB.giderKalemleri.push(isim);
-  saveDB(); closeModal('giderKalemModal'); renderGiderKalemTable();
+  performAutoSave(true); closeModal('giderKalemModal'); renderGiderKalemTable();
   toast('Gider kalemi eklendi ✓');
 }
 
 function deleteGiderKalem(i) {
   DB.giderKalemleri.splice(i,1);
-  saveDB(); renderGiderKalemTable();
+  AUTO_SAVE_PENDING = true;
+  performAutoSave(true); renderGiderKalemTable();
 }
 
 // ════════════════════════════════════════════════════════
@@ -1201,6 +1268,7 @@ function onGiderChange(ay) {
     toplam += v;
   });
   document.getElementById('giderToplam').textContent = tl(toplam);
+  markDirty('• Gider değişikliği kaydedilecek');
   // Kasa güncelle
   const h = hesapla(ay);
   const kasa = kasaHesapla(ay);
@@ -1262,6 +1330,64 @@ function topluSifirla() {
   });
   onTahsilatChange(activeAy);
   toast('Manuel düzeltmeler temizlendi');
+}
+
+function temizleBuAyGiderleri() {
+  if (!activeAy) return;
+  if (!confirm(`${activeAy} ayındaki tüm gider tutarları sıfırlansın mı?`)) return;
+  ensureAyData(activeAy);
+  DB.giderKalemleri.forEach(k => {
+    DB.aylar[activeAy].giderler[k] = 0;
+    const el = document.getElementById(`g-${k}`);
+    if (el) el.value = '';
+  });
+  onGiderChange(activeAy);
+  toast(`${activeAy} giderleri temizlendi ✓`);
+}
+
+function temizleAyniGiderleriSonrakiAylardan() {
+  if (!activeAy) return;
+  ensureAyData(activeAy);
+  const aktifIndex = AYLAR.indexOf(activeAy);
+  const referans = {};
+  let doluKalem = 0;
+  DB.giderKalemleri.forEach(k => {
+    const val = parseFloat(document.getElementById(`g-${k}`)?.value) || 0;
+    referans[k] = val;
+    if (val !== 0) doluKalem++;
+  });
+  if (!doluKalem) {
+    toast('Önce bu ayda temizlenecek örnek giderleri bırakın', 'err');
+    return;
+  }
+  if (!confirm(`${activeAy} ayındaki aynı tutarlı giderler sonraki aylardan temizlensin mi? Sadece birebir aynı olanlar silinir.`)) return;
+
+  let temizlenenHucre = 0;
+  let etkilenenAy = 0;
+  for (let i = aktifIndex + 1; i < AYLAR.length; i++) {
+    const ay = AYLAR[i];
+    ensureAyData(ay);
+    let ayDegisti = false;
+    DB.giderKalemleri.forEach(k => {
+      const refVal = referans[k] || 0;
+      const mevcut = parseFloat(DB.aylar[ay].giderler[k]) || 0;
+      if (refVal !== 0 && mevcut === refVal) {
+        DB.aylar[ay].giderler[k] = 0;
+        temizlenenHucre++;
+        ayDegisti = true;
+      }
+    });
+    if (ayDegisti) etkilenenAy++;
+  }
+
+  if (temizlenenHucre === 0) {
+    toast('Sonraki aylarda birebir aynı gider bulunamadı');
+    return;
+  }
+
+  onGiderChange(activeAy);
+  markDirty('• Toplu gider temizliği kaydedilecek');
+  toast(`${etkilenenAy} ayda ${temizlenenHucre} gider temizlendi ✓`);
 }
 
 
@@ -1453,7 +1579,7 @@ function renderTahsilat(ay) {
         </td>
         <td class="r" id="tb-kalan-${m.id}" style="font-family:var(--mono);font-size:12px;color:${bakiyeColor};font-weight:700">${bakiyeText}</td>
         <td class="c" id="tb-status-${m.id}">${badge}</td>
-        <td><input type="text" class="input-text" style="font-size:12px;padding:5px 8px;max-width:160px" id="tb-not-${m.id}" value="${kayit.not||''}" placeholder="—"></td>
+        <td><input type="text" class="input-text" style="font-size:12px;padding:5px 8px;max-width:160px" id="tb-not-${m.id}" value="${kayit.not||''}" placeholder="—" oninput="markDirty('• Not değişikliği kaydedilecek')"></td>
       </tr>`;
   }).join('');
 
@@ -1524,6 +1650,7 @@ function onTahsilatChange(ay) {
   });
 
   renderTahsilatFoot(ay, toplamAidat, toplamAutoDevir, toplamDuzeltme, toplamBorc, toplamOdeme, toplamAlacak);
+  markDirty('• Tahsilat değişikliği kaydedilecek');
 }
 
 function renderTahsilatFoot(ay, toplamAidat, toplamAutoDevir, toplamDuzeltme, toplamBorc, toplamOdeme, toplamAlacak) {
@@ -1587,12 +1714,12 @@ function saveAy() {
       };
     }
   });
-  saveDB();
+  AUTO_SAVE_PENDING = true;
+  performAutoSave(true);
   renderSidebar();
   // Ay tab içinde aktif tab'ı yenile
   if (activeAyTab === 'giderler') renderGiderler(activeAy);
   else renderTahsilat(activeAy);
-  toast(`${activeAy} verileri kaydedildi ✓`);
 }
 
 // ════════════════════════════════════════════════════════
@@ -1694,6 +1821,7 @@ function doLogin() {
     IS_ADMIN = true;
     closeLoginOverlay();
     updateAdminUI();
+    updateSaveStatus('idle');
     toast('Yönetici girişi yapıldı ✓');
   } else {
     document.getElementById('loginError').style.display = 'block';
@@ -1717,6 +1845,7 @@ function updateAdminUI() {
   } else {
     badge.className = 'guest-badge';
     badge.innerHTML = '👤 Giriş Yap';
+    updateSaveStatus('idle', '👁️ Görüntüleme modu');
   }
 
   // Ayarlar menüsü
@@ -1739,6 +1868,7 @@ function updateAdminUI() {
 // Hide ayarlar from guests on boot
 document.addEventListener('DOMContentLoaded', () => {
   updateAdminUI();
+  window.addEventListener('beforeunload', () => { if (IS_ADMIN) saveLocalDraft(); });
 });
 
 // ── Expose to global scope (needed for onclick handlers) ──
@@ -1762,6 +1892,9 @@ window.onGiderChange = onGiderChange;
 window.topluBorclandir = topluBorclandir;
 window.topluSifirla = topluSifirla;
 window.onTahsilatChange = onTahsilatChange;
+window.markDirty = markDirty;
+window.temizleBuAyGiderleri = temizleBuAyGiderleri;
+window.temizleAyniGiderleriSonrakiAylardan = temizleAyniGiderleriSonrakiAylardan;
 window.saveAy = saveAy;
 window.closeModal = closeModal;
 window.exportData = exportData;
