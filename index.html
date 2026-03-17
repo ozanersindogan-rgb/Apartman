@@ -605,7 +605,7 @@ input:disabled { background: var(--surface2) !important; color: var(--ink2) !imp
                   <th class="r">BU AY AİDATI (₺)</th>
                   <th class="r">OTOMATİK DEVİR (₺)</th>
                   <th class="r">DÜZELTME (+/-) (₺)</th>
-                  <th class="r">TOPLAM BORÇ (₺)<br><span style="font-size:10px;color:var(--ink3);font-weight:500">otomatik</span></th>
+                  <th class="r">TOPLAM BORÇ (₺)<br><span style="font-size:10px;color:var(--ink3);font-weight:500">aidat + otomatik devir + düzeltme</span></th>
                   <th class="r">BU AY ÖDEME (₺)</th>
                   <th class="r">BAKİYE (₺)</th>
                   <th class="c">DURUM</th>
@@ -903,6 +903,11 @@ let activeAy = null;
 let activeAyTab = 'giderler';
 
 function goView(v, ay=null) {
+  if (IS_ADMIN && activeView === 'ay' && activeAy) {
+    const ayDegisiyor = (v !== 'ay') || (ay && ay !== activeAy);
+    if (ayDegisiyor) saveAy();
+  }
+
   document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
 
@@ -1432,23 +1437,36 @@ function aidatVeDevirToplami(ay, autoDevir, duzeltme) {
   return aidat + (parseFloat(autoDevir) || 0) + (parseFloat(duzeltme) || 0);
 }
 
-// Bir malikin belirtilen aydan önceki toplam ödenmemiş borcunu hesaplar
+// Bir malikin belirtilen aydan önceki net kapanış bakiyesini hesaplar
+// Pozitif = borç devri, negatif = alacak devri
 function devirBorcHesapla(malikId, ay) {
   const ayIdx = AYLAR.indexOf(ay);
-  if (ayIdx === 0) return 0;
+  if (ayIdx <= 0) return 0;
 
-  let net = 0;
+  let devredenBakiye = 0;
   for (let i = 0; i < ayIdx; i++) {
     const gecenAy = AYLAR[i];
-    const ayD = DB.aylar[gecenAy];
-    if (!ayD) continue;
-    const t = (ayD.tahsilat || {})[malikId] || {};
-    const oncekiAutoDevir = i === 0 ? 0 : devirBorcHesapla(malikId, gecenAy);
-    const borc = tahsilatToplamBorcunuHesapla(t, gecenAy, oncekiAutoDevir);
+    const t = ((DB.aylar[gecenAy]?.tahsilat) || {})[malikId] || {};
+    const aidat = DB.aidatlar[gecenAy] || 0;
     const odeme = parseFloat(t.odeme) || 0;
-    net += borc - odeme;
+
+    let toplamBorc;
+    if (Object.prototype.hasOwnProperty.call(t, 'duzeltme')) {
+      const duzeltme = parseFloat(t.duzeltme) || 0;
+      toplamBorc = aidat + devredenBakiye + duzeltme;
+    } else if (Object.prototype.hasOwnProperty.call(t, 'devir')) {
+      const efektifDevir = parseFloat(t.devir) || 0;
+      toplamBorc = aidat + efektifDevir;
+    } else if (Object.prototype.hasOwnProperty.call(t, 'borc')) {
+      toplamBorc = parseFloat(t.borc) || 0;
+    } else {
+      toplamBorc = aidat + devredenBakiye;
+    }
+
+    devredenBakiye = toplamBorc - odeme;
   }
-  return net; // Pozitif = borç, negatif = alacak devri
+
+  return devredenBakiye;
 }
 
 // Bu ayın toplam borcunu hesaplar: aidat + devir
@@ -1592,7 +1610,7 @@ function renderTahsilatStats(ay, toplamAidat, toplamAutoDevir, toplamDuzeltme, t
     <div class="stat-card c-blue"><div class="s-label">Bu Ay Aidat Toplamı</div><div class="s-val">${tl(toplamAidat)}</div><div class="s-sub">Sadece ilgili ay</div></div>
     <div class="stat-card c-amber"><div class="s-label">Otomatik Devir</div><div class="s-val">${tl(toplamAutoDevir)}</div><div class="s-sub">Önceki aylardan gelen net bakiye</div></div>
     <div class="stat-card ${toplamDuzeltme>=0?'c-amber':'c-green'}"><div class="s-label">Manuel Düzeltme</div><div class="s-val">${toplamDuzeltme===0?'0 ₺':(toplamDuzeltme>0?tl(toplamDuzeltme):'-'+tl(Math.abs(toplamDuzeltme)))}</div><div class="s-sub">Sadece fark girilir</div></div>
-    <div class="stat-card c-red"><div class="s-label">Toplam Borç</div><div class="s-val">${tl(toplamBorc)}</div><div class="s-sub">Aidat + otomatik devir + düzeltme</div></div>
+    <div class="stat-card c-red"><div class="s-label">Toplam Borç</div><div class="s-val">${tl(toplamBorc)}</div><div class="s-sub">Bu ay aidatı + geçmiş bakiye + düzeltme</div></div>
     <div class="stat-card c-green"><div class="s-label">Toplanan Ödeme</div><div class="s-val">${tl(toplamOdeme)}</div><div class="s-sub">Bu ay girilen ödeme</div></div>
     <div class="stat-card ${toplamAlacak>0?'c-blue':kalan>0?'c-red':'c-green'}"><div class="s-label">Net Bakiye</div><div class="s-val">${toplamAlacak>0?'Alacak '+tl(toplamAlacak):tl(kalan)}</div><div class="s-sub">Borç kalanı veya fazla ödeme</div></div>
   `;
