@@ -404,6 +404,8 @@ input:disabled { background: var(--surface2) !important; color: var(--ink2) !imp
 
   <div class="sidebar-bottom">
     <button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center" onclick="exportData()">💾 Yedekle</button>
+    <button class="btn btn-ghost btn-sm admin-only" style="width:100%;justify-content:center;margin-top:6px" onclick="importData()">📂 Yedek Yükle</button>
+    <input type="file" id="importFileInput" accept=".json" style="display:none" onchange="handleImportFile(event)">
   </div>
 </aside>
 
@@ -1893,6 +1895,37 @@ function exportData() {
   toast('Yedek indirildi ✓');
 }
 
+function importData() {
+  if (!IS_ADMIN) { toast('Yedek yüklemek için yönetici girişi gerekli', 'err'); return; }
+  document.getElementById('importFileInput').value = '';
+  document.getElementById('importFileInput').click();
+}
+
+function handleImportFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const parsed = JSON.parse(e.target.result);
+      if (!parsed.ver || !parsed.malikler || !parsed.aylar) {
+        toast('Geçersiz yedek dosyası', 'err'); return;
+      }
+      if (!confirm(`"${file.name}" dosyasındaki veriler yüklenecek.\nMevcut tüm veriler silinecek. Emin misiniz?`)) return;
+      DB = parsed;
+      if (!DB.aylar) DB.aylar = {};
+      const ok = await saveDB(true);
+      saveLocalDraft();
+      renderSidebar();
+      goView('ozet');
+      toast(ok ? 'Yedek başarıyla yüklendi ✓' : 'Yedek yüklendi (çevrimdışı kaydedildi)');
+    } catch(err) {
+      toast('Dosya okunamadı: ' + err.message, 'err');
+    }
+  };
+  reader.readAsText(file);
+}
+
 function resetAll() {
   if (!confirm('TÜM veriler silinecek. Emin misiniz?')) return;
   localStorage.removeItem('apt2026');
@@ -2047,6 +2080,8 @@ window.temizleAyniGiderleriSonrakiAylardan = temizleAyniGiderleriSonrakiAylardan
 window.saveAy = saveAy;
 window.closeModal = closeModal;
 window.exportData = exportData;
+window.importData = importData;
+window.handleImportFile = handleImportFile;
 window.resetAll = resetAll;
 window.openLoginOverlay = openLoginOverlay;
 window.closeLoginOverlay = closeLoginOverlay;
