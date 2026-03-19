@@ -827,7 +827,9 @@ function updateSaveStatus(state='idle', extra='') {
 
 function markDirty(message='• Değişiklik var') {
   if (!IS_ADMIN) return;
-  DB.aylar[activeAy].aktif = ayKaydindaDegerVarMi(activeAy);
+  if (activeAy && DB.aylar[activeAy]) {
+    DB.aylar[activeAy].aktif = ayKaydindaDegerVarMi(activeAy);
+  }
   AUTO_SAVE_PENDING = true;
   saveLocalDraft();
   updateSaveStatus('dirty', message);
@@ -837,6 +839,15 @@ function markDirty(message='• Değişiklik var') {
 
 async function performAutoSave(showToast=false) {
   if (!IS_ADMIN || !AUTO_SAVE_PENDING) return;
+  // Gider tab'ı açıksa DB'ye anlık DOM değerlerini yaz
+  if (activeView === 'ay' && activeAy && activeAyTab === 'giderler') {
+    ensureAyData(activeAy);
+    DB.giderKalemleri.forEach(k => {
+      const el = document.getElementById(`g-${k}`);
+      if (el) DB.aylar[activeAy].giderler[k] = parseFloat(el.value)||0;
+    });
+    DB.aylar[activeAy].aktif = ayKaydindaDegerVarMi(activeAy);
+  }
   updateSaveStatus('saving');
   const ok = await saveDB(false);
   if (ok) {
@@ -904,9 +915,25 @@ let activeAy = null;
 let activeAyTab = 'giderler';
 
 function goView(v, ay=null) {
+  // Ay değişmeden önce mevcut ayı kaydet (sadece görünür DOM verisini)
   if (IS_ADMIN && activeView === 'ay' && activeAy) {
     const ayDegisiyor = (v !== 'ay') || (ay && ay !== activeAy);
-    if (ayDegisiyor) saveAy();
+    if (ayDegisiyor) {
+      // Sadece giderler tabı açıksa giderleri kaydet
+      if (activeAyTab === 'giderler') {
+        ensureAyData(activeAy);
+        DB.giderKalemleri.forEach(k => {
+          const el = document.getElementById(`g-${k}`);
+          if (el) DB.aylar[activeAy].giderler[k] = parseFloat(el.value)||0;
+        });
+        DB.aylar[activeAy].aktif = ayKaydindaDegerVarMi(activeAy);
+        AUTO_SAVE_PENDING = true;
+        performAutoSave(false);
+      } else {
+        // Tahsilat tabı açıksa tahsilatı kaydet
+        saveAy();
+      }
+    }
   }
 
   document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
@@ -1335,20 +1362,22 @@ function renderGiderler(ay) {
 }
 
 function onGiderChange(ay) {
+  // SADECE görsel güncelleme yapar — DB'ye YAZMAZ.
+  // DB yazımı yalnızca saveAy() içinde olur.
   ensureAyData(ay);
   let toplam = 0;
   DB.giderKalemleri.forEach(k => {
     const v = parseFloat(document.getElementById(`g-${k}`)?.value)||0;
-    DB.aylar[ay].giderler[k] = v;
     toplam += v;
   });
   document.getElementById('giderToplam').textContent = tl(toplam);
   markDirty('• Gider değişikliği kaydedilecek');
-  // Kasa güncelle
+  // Kasa görsel güncellemesi — DB'deki eski değer değil, DOM'dan okunan tutarla
   const h = hesapla(ay);
-  const kasa = kasaHesapla(ay);
   const ayIdx = AYLAR.indexOf(ay);
+  // Önceki aylara kadar kasa doğru, bu ayın giderini DOM'dan al
   const prevKasa = ayIdx===0 ? parseFloat(DB.genel.kasaAcilis)||0 : kasaHesapla(AYLAR[ayIdx-1]);
+  const kasa = prevKasa + h.toplanan - toplam;
   const prevLabel = ayIdx===0 ? 'Açılış Bakiyesi' : `Kasa ${AYLAR[ayIdx-1]} Sonu`;
   document.getElementById('kasaPanel').innerHTML = `
     <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0">
@@ -1799,35 +1828,44 @@ function saveAy() {
   if (!IS_ADMIN) { toast('Düzenleme için yönetici girişi gerekli', 'err'); return; }
   if (!activeAy) return;
   ensureAyData(activeAy);
-  // Ay işlenmişse aktifleşsin
+
+  // ── Giderleri kaydet (her zaman DOM'dan yaz) ──
   DB.giderKalemleri.forEach(k => {
     const el = document.getElementById(`g-${k}`);
     if (el) DB.aylar[activeAy].giderler[k] = parseFloat(el.value)||0;
+    // el yoksa (farklı tab) mevcut DB değerini koru — üzerine yazma
   });
-  // Tahsilat kaydet
+
+  // ── Tahsilatı kaydet (SADECE DOM'daki input'lar varsa) ──
   DB.malikler.forEach(m => {
     if (m.muaf) return;
     const dEl = document.getElementById(`tb-duzeltme-${m.id}`);
     const oEl = document.getElementById(`tb-odeme-${m.id}`);
     const nEl = document.getElementById(`tb-not-${m.id}`);
-    if (dEl || oEl) {
+
+    if (dEl !== null || oEl !== null) {
+      // Tahsilat tabı açık — DOM'dan yaz
       const autoDevir = devirBorcHesapla(m.id, activeAy);
       const duzeltme = parseFloat(dEl?.value) || 0;
+      const odeme    = parseFloat(oEl?.value) || 0;
+      const not      = nEl?.value || '';
       DB.aylar[activeAy].tahsilat[m.id] = {
         autoDevir,
         duzeltme,
         devir: autoDevir + duzeltme,
         borc: malikAylikBorcHesapla(m.id, activeAy, autoDevir, duzeltme),
-        odeme: parseFloat(oEl?.value)||0,
-        not:   nEl?.value||''
+        odeme,
+        not
       };
     }
+    // DOM input'ları yoksa (giderler tabı açık) mevcut tahsilat verisine DOKUNMA
   });
+
   DB.aylar[activeAy].aktif = ayKaydindaDegerVarMi(activeAy);
   AUTO_SAVE_PENDING = true;
   performAutoSave(true);
   renderSidebar();
-  // Ay tab içinde aktif tab'ı yenile
+  // Aktif tabı yenile
   if (activeAyTab === 'giderler') renderGiderler(activeAy);
   else renderTahsilat(activeAy);
 }
