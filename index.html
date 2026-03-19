@@ -573,13 +573,14 @@ input:disabled { background: var(--surface2) !important; color: var(--ink2) !imp
             <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
               <div>
                 <div style="font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:2px">⚡ Toplu İşlemler</div>
-                <div style="font-size:11px;color:var(--ink3)">Sağlıklı sistem için geçmiş borç otomatik taşınır, sadece düzeltme farkı manuel girilir</div>
+                <div style="font-size:11px;color:var(--ink3)">Borçlandırma ve tahsilat işlemlerini tek tıkla uygula</div>
+                <button class="btn btn-danger btn-sm" style="margin-top:6px" onclick="tumAylariSifirla()">🗑 Tüm Ayların Borçlarını Sıfırla</button>
               </div>
               <div style="display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap">
                 <span style="font-size:12px;color:var(--ink3)">Bu ay aidatı:</span>
                 <span style="font-family:var(--mono);font-weight:700;color:var(--blue);font-size:15px" id="tahsilat-aidatTutar">—</span>
-                <button class="btn btn-primary btn-sm" onclick="topluBorclandir()">Otomatik Devri Getir</button>
-                <button class="btn btn-ghost btn-sm" onclick="topluSifirla()">Düzeltmeleri Temizle</button>
+                <button class="btn btn-primary btn-sm" onclick="topluBorclandir()">⚡ Bu Aya Uygula</button>
+                <button class="btn btn-ghost btn-sm" onclick="topluSifirla()">Borçları Temizle</button>
                 <button class="btn btn-success btn-sm" onclick="topluTahsilat()">✅ Tümü Ödedi</button>
                 <button class="btn btn-ghost btn-sm" onclick="topluTahsilatSifirla()">Ödemeleri Sıfırla</button>
                 <button class="btn btn-success btn-sm" onclick="saveAy()">💾 Kaydet</button>
@@ -704,7 +705,7 @@ input:disabled { background: var(--surface2) !important; color: var(--ink2) !imp
 const AYLAR = ["OCAK","ŞUBAT","MART","NİSAN","MAYIS","HAZİRAN",
                "TEMMUZ","AĞUSTOS","EYLÜL","EKİM","KASIM","ARALIK"];
 
-const VER = 'apt2026_v5';
+const VER = 'apt2026_v6';
 
 function defaultDB() {
   return {
@@ -997,21 +998,14 @@ function renderOzet() {
   const tbody = document.getElementById('ozetBody');
   tbody.innerHTML = rows.map(r => {
     const kasaCls = r.kasa >= 0 ? 'color:var(--green)' : 'color:var(--red)';
-    const ayGirildi = !!DB.aylar[r.ay];
-    const durum = ayGirildi ? `<span class="badge badge-green">✓ Girildi</span>` : `<span class="badge badge-gray">Boş</span>`;
-    // Veri girilmemiş aylarda borç, gider, kasa gösterme
-    const borcGoster   = ayGirildi ? `<td class="r" style="color:var(--amber);font-weight:600">${tl(r.borc)}</td>` : `<td class="r" style="color:var(--ink3)">—</td>`;
-    const giderGoster  = ayGirildi ? `<td class="r">${tl(r.gider)}</td>` : `<td class="r" style="color:var(--ink3)">—</td>`;
-    const kasaGoster   = ayGirildi ? `<td class="r" style="${kasaCls};font-weight:600">${tl(r.kasa)}</td>` : `<td class="r" style="color:var(--ink3)">—</td>`;
-    const gerekenGoster = ayGirildi ? `<td class="r">${tl(r.gereken)}</td>` : `<td class="r" style="color:var(--ink3)">—</td>`;
-    const toplananGoster = ayGirildi ? `<td class="r">${tl(r.toplanan)}</td>` : `<td class="r" style="color:var(--ink3)">—</td>`;
+    const durum = DB.aylar[r.ay] ? `<span class="badge badge-green">✓ Girildi</span>` : `<span class="badge badge-gray">Boş</span>`;
     return `<tr>
       <td><a class="ozet-month-link" onclick="goView('ay','${r.ay}')">${r.ay}</a></td>
-      ${gerekenGoster}
-      ${toplananGoster}
-      ${giderGoster}
-      ${borcGoster}
-      ${kasaGoster}
+      <td class="r">${tl(r.gereken)}</td>
+      <td class="r">${tl(r.toplanan)}</td>
+      <td class="r">${tl(r.gider)}</td>
+      <td class="r" style="color:var(--amber);font-weight:600">${tl(r.borc)}</td>
+      <td class="r" style="${kasaCls};font-weight:600">${tl(r.kasa)}</td>
       <td class="c">${durum}</td>
     </tr>`;
   }).join('');
@@ -1379,6 +1373,24 @@ function onGiderChange(ay) {
   if (ayStatKasa) { ayStatKasa.textContent = tl(kasa); }
   const ayStatGider = document.querySelector('#ayStats .stat-card:nth-child(3) .s-val');
   if (ayStatGider) { ayStatGider.textContent = tl(toplam); }
+}
+
+function tumAylariSifirla() {
+  if (!confirm('TÜM AYLARIN borç ve ödeme verileri silinecek. Emin misiniz?')) return;
+  AYLAR.forEach(ay => {
+    if (!DB.aylar[ay]) return;
+    DB.malikler.forEach(m => {
+      if (m.muaf) return;
+      if (DB.aylar[ay].tahsilat && DB.aylar[ay].tahsilat[m.id]) {
+        DB.aylar[ay].tahsilat[m.id].borc = 0;
+        DB.aylar[ay].tahsilat[m.id].odeme = 0;
+      }
+    });
+  });
+  saveDB();
+  if (activeAy) renderAy(activeAy);
+  renderSidebar();
+  toast('Tüm ayların borçları sıfırlandı ✓');
 }
 
 function topluBorclandir() {
@@ -1988,6 +2000,7 @@ window.deleteGiderKalem = deleteGiderKalem;
 window.renderAyarlar = renderAyarlar;
 window.onGiderChange = onGiderChange;
 window.topluBorclandir = topluBorclandir;
+window.tumAylariSifirla = tumAylariSifirla;
 window.topluSifirla = topluSifirla;
 window.onTahsilatChange = onTahsilatChange;
 window.markDirty = markDirty;
