@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -998,14 +997,21 @@ function renderOzet() {
   const tbody = document.getElementById('ozetBody');
   tbody.innerHTML = rows.map(r => {
     const kasaCls = r.kasa >= 0 ? 'color:var(--green)' : 'color:var(--red)';
-    const durum = DB.aylar[r.ay] ? `<span class="badge badge-green">✓ Girildi</span>` : `<span class="badge badge-gray">Boş</span>`;
+    const ayGirildi = !!DB.aylar[r.ay];
+    const durum = ayGirildi ? `<span class="badge badge-green">✓ Girildi</span>` : `<span class="badge badge-gray">Boş</span>`;
+    // Veri girilmemiş aylarda borç, gider, kasa gösterme
+    const borcGoster   = ayGirildi ? `<td class="r" style="color:var(--amber);font-weight:600">${tl(r.borc)}</td>` : `<td class="r" style="color:var(--ink3)">—</td>`;
+    const giderGoster  = ayGirildi ? `<td class="r">${tl(r.gider)}</td>` : `<td class="r" style="color:var(--ink3)">—</td>`;
+    const kasaGoster   = ayGirildi ? `<td class="r" style="${kasaCls};font-weight:600">${tl(r.kasa)}</td>` : `<td class="r" style="color:var(--ink3)">—</td>`;
+    const gerekenGoster = ayGirildi ? `<td class="r">${tl(r.gereken)}</td>` : `<td class="r" style="color:var(--ink3)">—</td>`;
+    const toplananGoster = ayGirildi ? `<td class="r">${tl(r.toplanan)}</td>` : `<td class="r" style="color:var(--ink3)">—</td>`;
     return `<tr>
       <td><a class="ozet-month-link" onclick="goView('ay','${r.ay}')">${r.ay}</a></td>
-      <td class="r">${tl(r.gereken)}</td>
-      <td class="r">${tl(r.toplanan)}</td>
-      <td class="r">${tl(r.gider)}</td>
-      <td class="r" style="color:var(--amber);font-weight:600">${tl(r.borc)}</td>
-      <td class="r" style="${kasaCls};font-weight:600">${tl(r.kasa)}</td>
+      ${gerekenGoster}
+      ${toplananGoster}
+      ${giderGoster}
+      ${borcGoster}
+      ${kasaGoster}
       <td class="c">${durum}</td>
     </tr>`;
   }).join('');
